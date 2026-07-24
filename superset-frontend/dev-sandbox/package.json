@@ -1,0 +1,16 @@
+{
+  "name": "datetime-picker-sandbox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Lightweight Vite harness to iterate on the Superset DateFilterControl picker UI without building the whole app. Resolves component source + @superset-ui/@apache-superset packages from the parent superset-frontend workspace.",
+  "scripts": {
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "@emotion/babel-plugin": "^11.11.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11",
+    "vite-plugin-svgr": "^4.3.0"
+  }
+}
