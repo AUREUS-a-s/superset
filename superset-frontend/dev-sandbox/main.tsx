@@ -3,22 +3,51 @@ import ReactDOM from 'react-dom';
 import { Provider } from 'react-redux';
 import { legacy_createStore as createStore } from 'redux';
 import { ThemeProvider, supersetTheme } from '@apache-superset/core/theme';
-import { CustomFrame } from 'src/explore/components/controls/DateFilterControl/components';
+import {
+  CustomFrame,
+  SingleDateFrame,
+} from 'src/explore/components/controls/DateFilterControl/components';
 
-// CustomFrame reads common.locale via useLocale() -> useSelector; a minimal
-// static store is all it needs.
+// CustomFrame/SingleDateFrame read common.locale via useLocale() -> useSelector;
+// a minimal static store is all they need.
 const store = createStore(() => ({ common: { locale: 'en' } }));
 
-// A few representative starting values to exercise the picker's modes.
-const PRESETS: Record<string, string> = {
-  Specific: '2021-03-16T00:00:00 : 2021-03-17T00:00:00',
-  'Relative (now)':
-    'DATEADD(DATETIME("now"), -7, day) : DATEADD(DATETIME("now"), 7, day)',
-  Empty: '',
+const boxStyle: React.CSSProperties = {
+  border: '1px solid #ddd',
+  padding: 24,
+  borderRadius: 8,
+  marginBottom: 24,
+};
+const valueStyle: React.CSSProperties = {
+  background: '#f5f5f5',
+  padding: 12,
+  marginTop: 12,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all',
 };
 
+// Each frame gets its own state so they don't fight over one shared value
+// (SingleDateFrame re-seeds any value that isn't already a single-day range).
+function FrameHarness({
+  title,
+  initial,
+  children,
+}: {
+  title: string;
+  initial: string;
+  children: (value: string, onChange: (v: string) => void) => JSX.Element;
+}) {
+  const [value, setValue] = useState(initial);
+  return (
+    <div style={boxStyle}>
+      <h3 style={{ marginTop: 0 }}>{title}</h3>
+      {children(value, setValue)}
+      <pre style={valueStyle}>{value || '(empty)'}</pre>
+    </div>
+  );
+}
+
 function Sandbox() {
-  const [value, setValue] = useState(PRESETS.Specific);
   return (
     <div
       style={{
@@ -27,39 +56,21 @@ function Sandbox() {
         fontFamily: 'system-ui, sans-serif',
       }}
     >
-      <h2>DateFilterControl · CustomFrame</h2>
-      <div style={{ marginBottom: 16 }}>
-        {Object.entries(PRESETS).map(([label, v]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => setValue(v)}
-            style={{ marginRight: 8 }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div
-        style={{
-          border: '1px solid #ddd',
-          padding: 24,
-          borderRadius: 8,
-        }}
+      <h2>DateFilterControl frames</h2>
+      <FrameHarness
+        title="SingleDateFrame (new) — pick one day"
+        initial="2021-03-16T00:00:00 : 2021-03-17T00:00:00"
       >
-        <CustomFrame value={value} onChange={setValue} />
-      </div>
-      <pre
-        style={{
-          background: '#f5f5f5',
-          padding: 12,
-          marginTop: 16,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}
+        {(value, onChange) => (
+          <SingleDateFrame value={value} onChange={onChange} />
+        )}
+      </FrameHarness>
+      <FrameHarness
+        title="CustomFrame (existing)"
+        initial="2021-03-16T00:00:00 : 2021-03-17T00:00:00"
       >
-        {value || '(empty)'}
-      </pre>
+        {(value, onChange) => <CustomFrame value={value} onChange={onChange} />}
+      </FrameHarness>
     </div>
   );
 }
