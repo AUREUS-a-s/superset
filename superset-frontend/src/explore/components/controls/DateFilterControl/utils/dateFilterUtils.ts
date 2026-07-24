@@ -27,6 +27,7 @@ import {
   CALENDAR_RANGE_VALUES_SET,
   CURRENT_RANGE_VALUES_SET,
 } from '.';
+import { guessSingleDate } from './dateParser';
 import { FrameType } from '../types';
 
 export const guessFrame = (timeRange: string): FrameType => {
@@ -41,6 +42,9 @@ export const guessFrame = (timeRange: string): FrameType => {
   }
   if (timeRange === NO_TIME_RANGE) {
     return 'No filter';
+  }
+  if (guessSingleDate(timeRange) !== undefined) {
+    return 'SingleDate';
   }
   if (customTimeRangeDecode(timeRange).matchedFlag) {
     return 'Custom';

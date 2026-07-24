@@ -40,9 +40,17 @@ export const FRAME_OPTIONS: SelectOptionType[] = [
   { value: 'Calendar', label: t('Previous') },
   { value: 'Current', label: t('Current') },
   { value: 'Custom', label: t('Custom') },
+  { value: 'SingleDate', label: t('Single date') },
   { value: 'Advanced', label: t('Advanced') },
   { value: 'No filter', label: t('No filter') },
 ];
+
+// SingleDate frame: a picked calendar date maps to that whole day as a
+// half-open range [midnight, next midnight), e.g. 2021-03-16 ->
+// "2021-03-16T00:00:00 : 2021-03-17T00:00:00". The exclusive next-day upper
+// bound matches how Superset evaluates the range (time_col < until), giving
+// strict whole-day coverage with no lost final second.
+// See singleDateEncode / guessSingleDate in ./dateParser.
 
 export const COMMON_RANGE_OPTIONS: CheckboxOptionType[] = [
   { value: 'Last day', label: t('Last day') },

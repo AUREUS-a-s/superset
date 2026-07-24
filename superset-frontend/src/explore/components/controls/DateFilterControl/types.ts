@@ -26,6 +26,7 @@ export type FrameType =
   | 'Calendar'
   | 'Current'
   | 'Custom'
+  | 'SingleDate'
   | 'Advanced'
   | 'No filter';
 

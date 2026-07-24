@@ -17,7 +17,13 @@
  * under the License.
  */
 
-import { customTimeRangeEncode } from 'src/explore/components/controls/DateFilterControl/utils';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
+import {
+  customTimeRangeEncode,
+  singleDateEncode,
+  guessSingleDate,
+  guessFrame,
+} from 'src/explore/components/controls/DateFilterControl/utils';
 
 // eslint-disable-next-line no-restricted-globals -- TODO: Migrate from describe blocks
 describe('Custom TimeRange', () => {
@@ -184,4 +190,68 @@ describe('Custom TimeRange', () => {
       );
     });
   });
+});
+
+test('singleDateEncode encodes a whole day as [midnight, next midnight)', () => {
+  expect(singleDateEncode(extendedDayjs('2021-03-16'))).toBe(
+    '2021-03-16T00:00:00 : 2021-03-17T00:00:00',
+  );
+});
+
+test('singleDateEncode uses the calendar day, ignoring the time of day', () => {
+  expect(singleDateEncode(extendedDayjs('2021-03-16T13:45:30'))).toBe(
+    '2021-03-16T00:00:00 : 2021-03-17T00:00:00',
+  );
+});
+
+test('singleDateEncode rolls over month/year boundaries', () => {
+  expect(singleDateEncode(extendedDayjs('2021-03-31'))).toBe(
+    '2021-03-31T00:00:00 : 2021-04-01T00:00:00',
+  );
+  expect(singleDateEncode(extendedDayjs('2021-12-31'))).toBe(
+    '2021-12-31T00:00:00 : 2022-01-01T00:00:00',
+  );
+});
+
+test('guessSingleDate recognizes an encoded whole-day range', () => {
+  expect(guessSingleDate('2021-03-16T00:00:00 : 2021-03-17T00:00:00')).toBe(
+    '2021-03-16',
+  );
+});
+
+test('guessSingleDate round-trips singleDateEncode', () => {
+  const value = singleDateEncode(extendedDayjs('2021-07-04'));
+  expect(guessSingleDate(value)).toBe('2021-07-04');
+});
+
+test('guessSingleDate rejects multi-day, non-midnight, and non-range values', () => {
+  // spans two days
+  expect(
+    guessSingleDate('2021-03-16T00:00:00 : 2021-03-18T00:00:00'),
+  ).toBeUndefined();
+  // bounds not at midnight
+  expect(
+    guessSingleDate('2021-03-16T00:00:00 : 2021-03-16T23:59:59'),
+  ).toBeUndefined();
+  expect(
+    guessSingleDate('2021-03-16T08:00:00 : 2021-03-17T08:00:00'),
+  ).toBeUndefined();
+  // relative / named / empty
+  expect(guessSingleDate('Last week')).toBeUndefined();
+  expect(
+    guessSingleDate('DATEADD(DATETIME("now"), -7, day) : now'),
+  ).toBeUndefined();
+  expect(guessSingleDate('')).toBeUndefined();
+});
+
+test('guessFrame returns SingleDate for an encoded whole-day range', () => {
+  expect(guessFrame('2021-03-16T00:00:00 : 2021-03-17T00:00:00')).toBe(
+    'SingleDate',
+  );
+});
+
+test('guessFrame still returns Custom for a non-day-aligned specific range', () => {
+  expect(guessFrame('2021-03-16T08:00:00 : 2021-03-20T00:00:00')).toBe(
+    'Custom',
+  );
 });

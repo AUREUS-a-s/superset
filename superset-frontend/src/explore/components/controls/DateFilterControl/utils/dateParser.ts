@@ -21,6 +21,40 @@ import { Dayjs } from 'dayjs';
 import { CustomRangeType } from 'src/explore/components/controls/DateFilterControl/types';
 import { DAYJS_FORMAT } from './constants';
 
+const SINGLE_DATE_DAY_FORMAT = 'YYYY-MM-DD';
+// Matches a single boundary of a single-day range: a plain date at midnight.
+const MIDNIGHT_ISO = /^(\d{4}-\d{2}-\d{2})T00:00:00$/;
+
+/**
+ * Encode a single calendar date as a whole-day, half-open range
+ * [midnight, next midnight), e.g.
+ * 2021-03-16 -> "2021-03-16T00:00:00 : 2021-03-17T00:00:00".
+ * The exclusive next-day upper bound matches Superset's time_col < until.
+ */
+export const singleDateEncode = (date: Dayjs): string => {
+  const start = date.startOf('day');
+  const since = start.format(DAYJS_FORMAT);
+  const until = start.add(1, 'day').format(DAYJS_FORMAT);
+  return `${since} : ${until}`;
+};
+
+/**
+ * If `timeRange` is a whole-day range produced by singleDateEncode (both bounds
+ * at midnight, exactly one day apart), return the 'YYYY-MM-DD' day; otherwise
+ * undefined. Relative/constant expressions (DATEADD, now, today) never match.
+ */
+export const guessSingleDate = (timeRange: string): string | undefined => {
+  const parts = (timeRange ?? '').split(' : ');
+  if (parts.length !== 2) return undefined;
+  const startMatch = MIDNIGHT_ISO.exec(parts[0]);
+  const endMatch = MIDNIGHT_ISO.exec(parts[1]);
+  if (!startMatch || !endMatch) return undefined;
+  const start = extendedDayjs(startMatch[1], SINGLE_DATE_DAY_FORMAT);
+  const end = extendedDayjs(endMatch[1], SINGLE_DATE_DAY_FORMAT);
+  if (!start.isValid() || !end.isValid()) return undefined;
+  return end.isSame(start.add(1, 'day'), 'day') ? startMatch[1] : undefined;
+};
+
 /**
  * RegExp to test a string for a full ISO 8601 Date
  * Does not do any sort of date validation, only checks if the string is according to the ISO 8601 spec.
