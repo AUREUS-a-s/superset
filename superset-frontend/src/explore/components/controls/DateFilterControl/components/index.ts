@@ -22,4 +22,4 @@ export { CurrentCalendarFrame } from './CurrentCalendarFrame';
 export { CustomFrame } from './CustomFrame';
 export { SingleDateFrame } from './SingleDateFrame';
 export { AdvancedFrame } from './AdvancedFrame';
-export { DateLabel } from './DateLabel';
+export { DateLabel, DATE_LABEL_CLASS } from './DateLabel';

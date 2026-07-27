@@ -23,11 +23,19 @@ import { t } from '@apache-superset/core/translation';
 import { css, styled } from '@apache-superset/core/theme';
 import { Icons } from '@superset-ui/core/components/Icons';
 
+/**
+ * Marks the bordered pill. Containers that decorate it (focus ring, validation
+ * border) should select this class instead of a direct child, so the styling
+ * survives the pill being wrapped.
+ */
+export const DATE_LABEL_CLASS = 'date-label-container';
+
 export type DateLabelProps = {
   name?: string;
   label: ReactNode;
   isActive?: boolean;
   isPlaceholder?: boolean;
+  className?: string;
   onClick?: (event: MouseEvent) => void;
 };
 
@@ -80,7 +88,14 @@ const LabelContainer = styled.div<{
 
 export const DateLabel = forwardRef(
   (props: DateLabelProps, ref: RefObject<HTMLSpanElement>) => (
-    <LabelContainer {...props} tabIndex={0} role="button">
+    <LabelContainer
+      {...props}
+      // stable hook so containers can style the bordered pill by name rather
+      // than by position, which breaks as soon as it is wrapped
+      className={[DATE_LABEL_CLASS, props.className].filter(Boolean).join(' ')}
+      tabIndex={0}
+      role="button"
+    >
       <span
         id={`date-label-${props.name}`}
         className="date-label-content"

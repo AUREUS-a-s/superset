@@ -33,6 +33,7 @@ import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import DateFilterLabel from '..';
 import { DateFilterControlProps } from '../types';
 import { DateFilterTestKey } from '../utils';
+import { DATE_LABEL_CLASS } from '../components';
 
 jest.mock('@superset-ui/core', () => ({
   ...jest.requireActual('@superset-ui/core'),
@@ -272,4 +273,18 @@ test('DateFilter pill survives a stale time range response', async () => {
 
   expect(screen.getByText('2021-03-16')).toBeInTheDocument();
   expect(screen.queryByText('Last week')).not.toBeInTheDocument();
+});
+
+// TimeFilterPlugin decorates the pill (focus ring, validation border) by this
+// class. The day steppers wrap the pill, so it must not be position-dependent.
+test('DateFilter keeps the pill styling hook with and without the steppers', () => {
+  const { rerender } = render(setup({ ...defaultProps, value: 'Last week' }));
+  expect(screen.getByTestId(DateFilterTestKey.PopoverOverlay)).toHaveClass(
+    DATE_LABEL_CLASS,
+  );
+
+  rerender(setup({ ...defaultProps, value: singleDayValue }));
+  expect(screen.getByTestId(DateFilterTestKey.PopoverOverlay)).toHaveClass(
+    DATE_LABEL_CLASS,
+  );
 });

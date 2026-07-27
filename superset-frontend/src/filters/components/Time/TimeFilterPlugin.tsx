@@ -20,6 +20,7 @@ import { NO_TIME_RANGE, getExtensionsRegistry } from '@superset-ui/core';
 import { styled } from '@apache-superset/core/theme';
 import { useCallback, useEffect } from 'react';
 import DateFilterControl from 'src/explore/components/controls/DateFilterControl';
+import { DATE_LABEL_CLASS } from 'src/explore/components/controls/DateFilterControl/components';
 import { PluginFilterTimeProps } from './types';
 import { FilterPluginStyle } from '../common';
 
@@ -40,8 +41,9 @@ const ControlContainer = styled.div<{
   height: 100%;
   max-width: 100%;
   width: 100%;
-  & > div,
-  & > div:hover {
+  /* the pill is selected by class because it is not always a direct child:
+     a single date value wraps it together with the day stepper buttons */
+  & .${DATE_LABEL_CLASS}, & .${DATE_LABEL_CLASS}:hover {
     ${({ validateStatus, theme }) => {
       if (!validateStatus) return '';
       switch (validateStatus) {
@@ -60,7 +62,7 @@ const ControlContainer = styled.div<{
     width: 100%;
   }
 
-  &:focus > div {
+  &:focus .${DATE_LABEL_CLASS} {
     border-color: ${({ theme }) => theme.colorPrimary};
     box-shadow: ${({ theme }) => `0 0 0 2px ${theme.controlOutline}`};
     outline: 0;
