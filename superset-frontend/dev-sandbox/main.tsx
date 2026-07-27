@@ -7,6 +7,7 @@ import {
   CustomFrame,
   SingleDateFrame,
 } from 'src/explore/components/controls/DateFilterControl/components';
+import DateFilterLabel from 'src/explore/components/controls/DateFilterControl';
 
 // CustomFrame/SingleDateFrame read common.locale via useLocale() -> useSelector;
 // a minimal static store is all they need.
@@ -63,6 +64,20 @@ function Sandbox() {
       >
         {(value, onChange) => (
           <SingleDateFrame value={value} onChange={onChange} />
+        )}
+      </FrameHarness>
+      <FrameHarness
+        title="DateFilterLabel — full control with day steppers"
+        initial="2021-03-16T00:00:00 : 2021-03-17T00:00:00"
+      >
+        {(value, onChange) => (
+          <div style={{ width: 320 }}>
+            <DateFilterLabel
+              name="time_range"
+              value={value}
+              onChange={onChange}
+            />
+          </div>
         )}
       </FrameHarness>
       <FrameHarness

@@ -151,3 +151,68 @@ test('DateFilter seeds today as a whole-day range when switching to Single date'
   const today = extendedDayjs().format('YYYY-MM-DD');
   expect(await screen.findByDisplayValue(today)).toBeInTheDocument();
 });
+
+const singleDayValue = '2021-03-16T00:00:00 : 2021-03-17T00:00:00';
+
+test('DateFilter shows day steppers only for a single date value', () => {
+  const { rerender } = render(setup({ ...defaultProps, value: 'Last week' }));
+  expect(screen.queryByLabelText('Next day')).not.toBeInTheDocument();
+
+  rerender(setup({ ...defaultProps, value: singleDayValue }));
+  expect(screen.getByLabelText('Next day')).toBeInTheDocument();
+  expect(screen.getByLabelText('Previous day')).toBeInTheDocument();
+});
+
+test('DateFilter next day applies the following day without opening the popover', () => {
+  const onChange = jest.fn();
+  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
+
+  userEvent.click(screen.getByLabelText('Next day'));
+
+  expect(onChange).toHaveBeenLastCalledWith(
+    '2021-03-17T00:00:00 : 2021-03-18T00:00:00',
+  );
+  // no popover, so no APPLY to press
+  expect(screen.queryByText('Edit time range')).not.toBeInTheDocument();
+  expect(screen.queryByText('APPLY')).not.toBeInTheDocument();
+});
+
+test('DateFilter previous day applies the preceding day', () => {
+  const onChange = jest.fn();
+  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
+
+  userEvent.click(screen.getByLabelText('Previous day'));
+
+  expect(onChange).toHaveBeenLastCalledWith(
+    '2021-03-15T00:00:00 : 2021-03-16T00:00:00',
+  );
+});
+
+test('DateFilter stepping forward then back returns to the starting day', () => {
+  const onChange = jest.fn();
+  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
+
+  userEvent.click(screen.getByLabelText('Next day'));
+  userEvent.click(screen.getByLabelText('Previous day'));
+
+  expect(onChange).toHaveBeenLastCalledWith(singleDayValue);
+});
+
+// Clicking twice before the parent re-renders with the new value must step two
+// days, not repeat the same one.
+test('DateFilter day steppers keep stepping while the value catches up', () => {
+  const onChange = jest.fn();
+  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
+
+  userEvent.click(screen.getByLabelText('Next day'));
+  userEvent.click(screen.getByLabelText('Next day'));
+
+  expect(onChange).toHaveBeenNthCalledWith(
+    1,
+    '2021-03-17T00:00:00 : 2021-03-18T00:00:00',
+  );
+  expect(onChange).toHaveBeenNthCalledWith(
+    2,
+    '2021-03-18T00:00:00 : 2021-03-19T00:00:00',
+  );
+});

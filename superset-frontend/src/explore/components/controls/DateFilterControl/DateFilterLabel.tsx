@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ReactNode, useState, useEffect, useMemo } from 'react';
+import { ReactNode, useState, useEffect, useMemo, useRef } from 'react';
 import { t } from '@apache-superset/core/translation';
 import {
   NO_TIME_RANGE,
@@ -119,6 +119,23 @@ const IconWrapper = styled.span`
   }
   .error {
     color: ${({ theme }) => theme.colorError};
+  }
+`;
+
+const DayStepper = styled.div`
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: ${({ theme }) => theme.sizeUnit}px;
+
+  /* the popover trigger takes the space left over by the two buttons */
+  & > * {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  & > button {
+    flex: none;
   }
 `;
 
@@ -246,6 +263,15 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
     onClosePopover();
   }
 
+  // Applies a value straight away, bypassing the APPLY button. Takes the value
+  // as an argument because callers fire it in the same tick as the state
+  // update, when `timeRangeValue` is still the previous value.
+  function onApplyValue(nextValue: string) {
+    onChange(nextValue);
+    setShow(false);
+    onClosePopover();
+  }
+
   function onOpen() {
     setTimeRangeValue(value);
     setFrame(guessedFrame);
@@ -281,6 +307,27 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
       setTimeRangeValue(singleDateEncode(extendedDayjs()));
     }
     setFrame(value);
+  }
+
+  // A whole-day value can be stepped a day at a time without opening the
+  // popover, which is the common case when scanning consecutive days.
+  const singleDay = guessSingleDate(value);
+  // Two clicks can land before the new value arrives from the parent, which
+  // would step twice from the same day; remember the day just emitted until
+  // the prop catches up.
+  const steppedDayRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    steppedDayRef.current = undefined;
+  }, [value]);
+
+  function stepDay(days: number) {
+    const base = steppedDayRef.current ?? singleDay;
+    if (base === undefined) {
+      return;
+    }
+    const next = extendedDayjs(base).add(days, 'day');
+    steppedDayRef.current = next.format('YYYY-MM-DD');
+    onChange(singleDateEncode(next));
   }
 
   const overlayContent = (
@@ -319,6 +366,7 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
         <SingleDateFrame
           value={timeRangeValue}
           onChange={setTimeRangeValue}
+          onApply={onApplyValue}
           isOverflowingFilterBar={isOverflowingFilterBar}
         />
       )}
@@ -405,7 +453,29 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
   return (
     <>
       <ControlHeader {...props} />
-      {popoverContent}
+      {singleDay === undefined ? (
+        popoverContent
+      ) : (
+        <DayStepper data-test="day-stepper">
+          <Button
+            buttonSize="xsmall"
+            buttonStyle="tertiary"
+            onClick={() => stepDay(-1)}
+            aria-label={t('Previous day')}
+            tooltip={t('Previous day')}
+            icon={<Icons.CaretLeftOutlined iconSize="s" />}
+          />
+          {popoverContent}
+          <Button
+            buttonSize="xsmall"
+            buttonStyle="tertiary"
+            onClick={() => stepDay(1)}
+            aria-label={t('Next day')}
+            tooltip={t('Next day')}
+            icon={<Icons.CaretRightOutlined iconSize="s" />}
+          />
+        </DayStepper>
+      )}
     </>
   );
 }

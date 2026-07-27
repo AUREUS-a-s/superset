@@ -30,7 +30,7 @@ import {
   guessSingleDate,
   singleDateEncode,
 } from 'src/explore/components/controls/DateFilterControl/utils';
-import { FrameComponentProps } from 'src/explore/components/controls/DateFilterControl/types';
+import { SingleDateFrameProps } from 'src/explore/components/controls/DateFilterControl/types';
 
 /**
  * Picks a single calendar date, stored as that whole day. Selecting
@@ -40,8 +40,11 @@ import { FrameComponentProps } from 'src/explore/components/controls/DateFilterC
  * the component is rendered directly with a relative range); choosing a date
  * replaces it. DateFilterLabel seeds a valid value when the user switches to
  * this frame, so in the control itself a date is always preselected.
+ *
+ * Picking a day also applies it via `onApply` when provided, so the user does
+ * not have to confirm a complete choice with the APPLY button.
  */
-export function SingleDateFrame(props: FrameComponentProps) {
+export function SingleDateFrame(props: SingleDateFrameProps) {
   const datePickerLocale = useLocale();
   const currentDay = guessSingleDate(props.value);
 
@@ -59,7 +62,9 @@ export function SingleDateFrame(props: FrameComponentProps) {
             value={currentDay ? extendedDayjs(currentDay) : undefined}
             onChange={(datetime: Dayjs) => {
               if (datetime) {
-                props.onChange(singleDateEncode(datetime));
+                const timeRange = singleDateEncode(datetime);
+                props.onChange(timeRange);
+                props.onApply?.(timeRange);
               }
             }}
             allowClear={false}

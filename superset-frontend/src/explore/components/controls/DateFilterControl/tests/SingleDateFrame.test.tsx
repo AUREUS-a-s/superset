@@ -21,6 +21,7 @@ import configureStore from 'redux-mock-store';
 import {
   render,
   screen,
+  userEvent,
   waitForElementToBeRemoved,
 } from 'spec/helpers/testing-library';
 import { SingleDateFrame } from '../components';
@@ -63,4 +64,25 @@ test('does not change the value while rendering', () => {
   const onChange = jest.fn();
   render(<SingleDateFrame onChange={onChange} value="Last week" />, { store });
   expect(onChange).not.toHaveBeenCalled();
+});
+
+test('applies the value as soon as a day is picked', async () => {
+  const onChange = jest.fn();
+  const onApply = jest.fn();
+  render(
+    <SingleDateFrame
+      onChange={onChange}
+      onApply={onApply}
+      value={wholeDayValue}
+    />,
+    { store },
+  );
+  await waitForElementToBeRemoved(() => screen.queryByLabelText('Loading'));
+
+  userEvent.click(screen.getByDisplayValue('2021-03-16'));
+  userEvent.click(await screen.findByTitle('2021-03-10'));
+
+  const applied = '2021-03-10T00:00:00 : 2021-03-11T00:00:00';
+  expect(onChange).toHaveBeenCalledWith(applied);
+  expect(onApply).toHaveBeenCalledWith(applied);
 });

@@ -107,6 +107,15 @@ export type FrameComponentProps = {
   isOverflowingFilterBar?: boolean;
 };
 
+export type SingleDateFrameProps = FrameComponentProps & {
+  /**
+   * Commit the value and close the popover. Picking a day is an unambiguous,
+   * complete choice, so the frame applies it directly instead of making the
+   * user confirm with the APPLY button.
+   */
+  onApply?: (timeRange: string) => void;
+};
+
 export interface DateFilterControlProps {
   name: string;
   onChange: (timeRange: string) => void;
