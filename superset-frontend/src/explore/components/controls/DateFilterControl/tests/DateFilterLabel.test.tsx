@@ -216,3 +216,26 @@ test('DateFilter day steppers keep stepping while the value catches up', () => {
     '2021-03-18T00:00:00 : 2021-03-19T00:00:00',
   );
 });
+
+test('DateFilter shows just the day on the pill for a single date value', () => {
+  render(setup({ ...defaultProps, value: singleDayValue }));
+
+  // the pill reads 2021-03-16, not the range it expands to
+  expect(screen.getByText('2021-03-16')).toBeInTheDocument();
+  expect(screen.queryByText(singleDayValue)).not.toBeInTheDocument();
+});
+
+test('DateFilter pill follows the day steppers', () => {
+  const { rerender } = render(
+    setup({ ...defaultProps, value: singleDayValue }),
+  );
+  expect(screen.getByText('2021-03-16')).toBeInTheDocument();
+
+  rerender(
+    setup({
+      ...defaultProps,
+      value: '2021-03-17T00:00:00 : 2021-03-18T00:00:00',
+    }),
+  );
+  expect(screen.getByText('2021-03-17')).toBeInTheDocument();
+});

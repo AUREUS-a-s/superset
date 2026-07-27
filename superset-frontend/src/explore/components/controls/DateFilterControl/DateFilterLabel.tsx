@@ -192,6 +192,13 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
       setValidTimeRange(true);
       return;
     }
+    // A single date reads better on the pill than the range it expands to, and
+    // it is derivable without the API, so show it before the request settles
+    // rather than flashing the raw range.
+    const singleDay = guessSingleDate(value);
+    if (singleDay !== undefined) {
+      setActualTimeRange(singleDay);
+    }
     fetchTimeRange(value).then(({ value: actualRange, error }) => {
       if (error) {
         setEvalResponse(error || '');
@@ -201,15 +208,22 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
         /*
           HRT == human readable text
           ADR == actual datetime range
-          +--------------+------+----------+--------+----------+-----------+
-          |              | Last | Previous | Custom | Advanced | No Filter |
-          +--------------+------+----------+--------+----------+-----------+
-          | control pill | HRT  | HRT      | ADR    | ADR      |   HRT     |
-          +--------------+------+----------+--------+----------+-----------+
-          | tooltip      | ADR  | ADR      | HRT    | HRT      |   ADR     |
-          +--------------+------+----------+--------+----------+-----------+
+          DAY == the picked calendar day, e.g. 2021-03-16
+          +--------------+------+----------+--------+----------+-------------+-----------+
+          |              | Last | Previous | Custom | Advanced | Single date | No Filter |
+          +--------------+------+----------+--------+----------+-------------+-----------+
+          | control pill | HRT  | HRT      | ADR    | ADR      |     DAY     |   HRT     |
+          +--------------+------+----------+--------+----------+-------------+-----------+
+          | tooltip      | ADR  | ADR      | HRT    | HRT      |     ADR     |   ADR     |
+          +--------------+------+----------+--------+----------+-------------+-----------+
         */
-        if (
+        if (singleDay !== undefined) {
+          // the pill is already showing the day; only the tooltip needs the
+          // range the day expands to
+          setTooltipTitle(
+            getTooltipTitle(labelIsTruncated, singleDay, actualRange),
+          );
+        } else if (
           guessedFrame === 'Common' ||
           guessedFrame === 'Calendar' ||
           guessedFrame === 'Current' ||
