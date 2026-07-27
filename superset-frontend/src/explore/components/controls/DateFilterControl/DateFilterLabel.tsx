@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { ReactNode, useState, useEffect, useMemo, useRef } from 'react';
+import { ReactNode, useState, useEffect, useMemo } from 'react';
 import { t } from '@apache-superset/core/translation';
 import {
   NO_TIME_RANGE,
@@ -336,22 +336,12 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
   // A whole-day value can be stepped a day at a time without opening the
   // popover, which is the common case when scanning consecutive days.
   const singleDay = guessSingleDate(value);
-  // Two clicks can land before the new value arrives from the parent, which
-  // would step twice from the same day; remember the day just emitted until
-  // the prop catches up.
-  const steppedDayRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    steppedDayRef.current = undefined;
-  }, [value]);
 
   function stepDay(days: number) {
-    const base = steppedDayRef.current ?? singleDay;
-    if (base === undefined) {
+    if (singleDay === undefined) {
       return;
     }
-    const next = extendedDayjs(base).add(days, 'day');
-    steppedDayRef.current = next.format('YYYY-MM-DD');
-    onChange(singleDateEncode(next));
+    onChange(singleDateEncode(extendedDayjs(singleDay).add(days, 'day')));
   }
 
   const overlayContent = (

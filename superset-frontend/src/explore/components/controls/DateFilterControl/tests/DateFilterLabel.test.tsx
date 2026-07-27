@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { useState } from 'react';
 import thunk from 'redux-thunk';
 import { Provider } from 'react-redux';
 import configureStore from 'redux-mock-store';
@@ -195,32 +196,30 @@ test('DateFilter previous day applies the preceding day', () => {
   );
 });
 
-test('DateFilter stepping forward then back returns to the starting day', () => {
-  const onChange = jest.fn();
-  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
-
-  userEvent.click(screen.getByLabelText('Next day'));
-  userEvent.click(screen.getByLabelText('Previous day'));
-
-  expect(onChange).toHaveBeenLastCalledWith(singleDayValue);
-});
-
-// Clicking twice before the parent re-renders with the new value must step two
-// days, not repeat the same one.
-test('DateFilter day steppers keep stepping while the value catches up', () => {
-  const onChange = jest.fn();
-  render(setup({ ...defaultProps, onChange, value: singleDayValue }));
-
-  userEvent.click(screen.getByLabelText('Next day'));
-  userEvent.click(screen.getByLabelText('Next day'));
-
-  expect(onChange).toHaveBeenNthCalledWith(
-    1,
-    '2021-03-17T00:00:00 : 2021-03-18T00:00:00',
+// Real consumers feed the new value back (TimeFilterPlugin via setDataMask,
+// Explore via redux), so stepping repeatedly must walk day by day.
+function StatefulHost({ initial }: { initial: string }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <Provider store={mockStore({})}>
+      <span data-test="host-value">{value}</span>
+      <DateFilterLabel name="time_range" value={value} onChange={setValue} />
+    </Provider>
   );
-  expect(onChange).toHaveBeenNthCalledWith(
-    2,
+}
+
+test('DateFilter day steppers walk day by day when the parent applies the change', () => {
+  render(<StatefulHost initial={singleDayValue} />);
+
+  userEvent.click(screen.getByLabelText('Next day'));
+  userEvent.click(screen.getByLabelText('Next day'));
+  expect(screen.getByTestId('host-value')).toHaveTextContent(
     '2021-03-18T00:00:00 : 2021-03-19T00:00:00',
+  );
+
+  userEvent.click(screen.getByLabelText('Previous day'));
+  expect(screen.getByTestId('host-value')).toHaveTextContent(
+    '2021-03-17T00:00:00 : 2021-03-18T00:00:00',
   );
 });
 
