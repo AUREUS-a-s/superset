@@ -287,3 +287,19 @@ test('DateFilter keeps the pill styling hook with and without the steppers', () 
     DATE_LABEL_CLASS,
   );
 });
+
+test('DateFilter hides the confirm footer for the Single date frame', async () => {
+  render(setup());
+  userEvent.click(screen.getByText(NO_TIME_RANGE));
+  // the other frames confirm with APPLY
+  expect(screen.getByText('APPLY')).toBeInTheDocument();
+
+  await selectOption('Single date', 'Range type');
+
+  // picking a day applies immediately, so there is nothing to confirm
+  expect(screen.queryByText('APPLY')).not.toBeInTheDocument();
+  expect(screen.queryByText('CANCEL')).not.toBeInTheDocument();
+  expect(screen.queryByText('Actual time range')).not.toBeInTheDocument();
+  // the picker itself is still there
+  expect(screen.getByLabelText('Date')).toBeInTheDocument();
+});

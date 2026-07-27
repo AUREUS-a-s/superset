@@ -385,43 +385,49 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
         />
       )}
       {frame === 'No filter' && <div data-test={DateFilterTestKey.NoFilter} />}
-      <Divider />
-      <div>
-        <div className="section-title">{t('Actual time range')}</div>
-        {validTimeRange && (
+      {/* Picking a day applies and closes right away, so this frame has
+          nothing left to confirm and no result to preview. */}
+      {frame !== 'SingleDate' && (
+        <>
+          <Divider />
           <div>
-            {evalResponse === 'No filter' ? t('No filter') : evalResponse}
+            <div className="section-title">{t('Actual time range')}</div>
+            {validTimeRange && (
+              <div>
+                {evalResponse === 'No filter' ? t('No filter') : evalResponse}
+              </div>
+            )}
+            {!validTimeRange && (
+              <IconWrapper className="warning">
+                <Icons.ExclamationCircleOutlined iconColor={theme.colorError} />
+                <span className="text error">{evalResponse}</span>
+              </IconWrapper>
+            )}
           </div>
-        )}
-        {!validTimeRange && (
-          <IconWrapper className="warning">
-            <Icons.ExclamationCircleOutlined iconColor={theme.colorError} />
-            <span className="text error">{evalResponse}</span>
-          </IconWrapper>
-        )}
-      </div>
-      <Divider />
-      <div className="footer">
-        <Button
-          buttonStyle="secondary"
-          cta
-          key="cancel"
-          onClick={onHide}
-          data-test={DateFilterTestKey.CancelButton}
-        >
-          {t('CANCEL')}
-        </Button>
-        <Button
-          buttonStyle="primary"
-          cta
-          disabled={!validTimeRange}
-          key="apply"
-          onClick={onSave}
-          data-test={DateFilterTestKey.ApplyButton}
-        >
-          {t('APPLY')}
-        </Button>
-      </div>
+          <Divider />
+          <div className="footer">
+            <Button
+              buttonStyle="secondary"
+              cta
+              key="cancel"
+              onClick={onHide}
+              data-test={DateFilterTestKey.CancelButton}
+            >
+              {t('CANCEL')}
+            </Button>
+            <Button
+              buttonStyle="primary"
+              cta
+              disabled={!validTimeRange}
+              key="apply"
+              onClick={onSave}
+              data-test={DateFilterTestKey.ApplyButton}
+            >
+              {t('APPLY')}
+            </Button>
+          </div>
+        </>
+      )}
     </ContentStyleWrapper>
   );
 
