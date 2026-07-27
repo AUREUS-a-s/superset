@@ -23,6 +23,7 @@ import {
   useCSSTextTruncation,
   fetchTimeRange,
 } from '@superset-ui/core';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import {
   css,
   styled,
@@ -47,6 +48,8 @@ import {
   DateFilterTestKey,
   FRAME_OPTIONS,
   guessFrame,
+  guessSingleDate,
+  singleDateEncode,
   useDefaultTimeFilter,
 } from './utils';
 import {
@@ -269,6 +272,14 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
     if (value === NO_TIME_RANGE) {
       setTimeRangeValue(NO_TIME_RANGE);
     }
+    // Seed a whole-day range so the single date picker always shows a date,
+    // unless the current value already is one.
+    if (
+      value === 'SingleDate' &&
+      guessSingleDate(timeRangeValue) === undefined
+    ) {
+      setTimeRangeValue(singleDateEncode(extendedDayjs()));
+    }
     setFrame(value);
   }
 
@@ -305,7 +316,11 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
         />
       )}
       {frame === 'SingleDate' && (
-        <SingleDateFrame value={timeRangeValue} onChange={setTimeRangeValue} />
+        <SingleDateFrame
+          value={timeRangeValue}
+          onChange={setTimeRangeValue}
+          isOverflowingFilterBar={isOverflowingFilterBar}
+        />
       )}
       {frame === 'No filter' && <div data-test={DateFilterTestKey.NoFilter} />}
       <Divider />

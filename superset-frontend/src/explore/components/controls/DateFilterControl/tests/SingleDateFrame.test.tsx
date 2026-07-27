@@ -23,7 +23,6 @@ import {
   screen,
   waitForElementToBeRemoved,
 } from 'spec/helpers/testing-library';
-import { guessSingleDate } from 'src/explore/components/controls/DateFilterControl/utils';
 import { SingleDateFrame } from '../components';
 
 const mockStore = configureStore([thunk]);
@@ -48,11 +47,20 @@ test('shows the selected day in the picker input', async () => {
   expect(screen.getByDisplayValue('2021-03-16')).toBeInTheDocument();
 });
 
-test('seeds a whole-day value when arriving from another frame type', () => {
+test('renders an empty picker when the value is not a whole-day range', async () => {
+  render(<SingleDateFrame onChange={jest.fn()} value="Last week" />, { store });
+  await waitForElementToBeRemoved(() => screen.queryByLabelText('Loading'));
+  expect(screen.getByText('Date')).toBeInTheDocument();
+  expect(
+    screen.queryByDisplayValue(/\d{4}-\d{2}-\d{2}/),
+  ).not.toBeInTheDocument();
+});
+
+// Updating a parent's state while rendering a child triggers a React warning
+// ("Cannot update a component while rendering a different component"), so the
+// frame must stay pure; DateFilterLabel seeds the value on frame change.
+test('does not change the value while rendering', () => {
   const onChange = jest.fn();
   render(<SingleDateFrame onChange={onChange} value="Last week" />, { store });
-  expect(onChange).toHaveBeenCalled();
-  // whatever it seeded must itself be a valid single-day range
-  const [seeded] = onChange.mock.calls[0];
-  expect(guessSingleDate(seeded)).toBeTruthy();
+  expect(onChange).not.toHaveBeenCalled();
 });

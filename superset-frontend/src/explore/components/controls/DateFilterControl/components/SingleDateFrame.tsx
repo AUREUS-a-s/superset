@@ -21,6 +21,7 @@ import {
   AntdThemeProvider,
   DatePicker,
   Loading,
+  Row,
 } from '@superset-ui/core/components';
 import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import { Dayjs } from 'dayjs';
@@ -32,18 +33,17 @@ import {
 import { FrameComponentProps } from 'src/explore/components/controls/DateFilterControl/types';
 
 /**
- * A minimal single-date picker: the user selects one calendar date and the
- * value is stored as that whole day, e.g. picking 2021-03-16 yields
- * "2021-03-16T00:00:00 : 2021-03-16T23:59:59".
+ * Picks a single calendar date, stored as that whole day. Selecting
+ * 2021-03-16 yields "2021-03-16T00:00:00 : 2021-03-17T00:00:00".
+ *
+ * The picker is empty when `value` is not a whole-day range (for example when
+ * the component is rendered directly with a relative range); choosing a date
+ * replaces it. DateFilterLabel seeds a valid value when the user switches to
+ * this frame, so in the control itself a date is always preselected.
  */
 export function SingleDateFrame(props: FrameComponentProps) {
   const datePickerLocale = useLocale();
   const currentDay = guessSingleDate(props.value);
-
-  // Seed a valid single-date value when arriving from another frame type.
-  if (currentDay === undefined) {
-    props.onChange(singleDateEncode(extendedDayjs().startOf('day')));
-  }
 
   // useLocale resolves asynchronously; mirror CustomFrame's loading behaviour.
   if (datePickerLocale === null) {
@@ -52,17 +52,25 @@ export function SingleDateFrame(props: FrameComponentProps) {
 
   return (
     <AntdThemeProvider locale={datePickerLocale}>
-      <div className="control-label">{t('Date')}</div>
-      <DatePicker
-        value={currentDay ? extendedDayjs(currentDay) : undefined}
-        onChange={(date: Dayjs | null) => {
-          if (date) {
-            props.onChange(singleDateEncode(date));
-          }
-        }}
-        allowClear={false}
-        style={{ width: '100%' }}
-      />
+      <div data-test="single-date-frame">
+        <div className="control-label">{t('Date')}</div>
+        <Row>
+          <DatePicker
+            value={currentDay ? extendedDayjs(currentDay) : undefined}
+            onChange={(datetime: Dayjs) => {
+              if (datetime) {
+                props.onChange(singleDateEncode(datetime));
+              }
+            }}
+            allowClear={false}
+            getPopupContainer={(triggerNode: HTMLElement) =>
+              props.isOverflowingFilterBar
+                ? (triggerNode.parentNode as HTMLElement)
+                : document.body
+            }
+          />
+        </Row>
+      </div>
     </AntdThemeProvider>
   );
 }

@@ -20,9 +20,15 @@ import thunk from 'redux-thunk';
 import { Provider } from 'react-redux';
 import configureStore from 'redux-mock-store';
 
-import { render, screen, userEvent } from 'spec/helpers/testing-library';
+import {
+  render,
+  screen,
+  selectOption,
+  userEvent,
+} from 'spec/helpers/testing-library';
 
 import { NO_TIME_RANGE } from '@superset-ui/core';
+import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import DateFilterLabel from '..';
 import { DateFilterControlProps } from '../types';
 import { DateFilterTestKey } from '../utils';
@@ -135,4 +141,13 @@ test('DateFilter should properly handle isOverflowingFilterBar prop changes', ()
 
   expect(popoverAfterRerender?.parentElement).toBe(trigger.parentElement);
   expect(popoverAfterRerender?.parentElement).not.toBe(document.body);
+});
+
+test('DateFilter seeds today as a whole-day range when switching to Single date', async () => {
+  render(setup());
+  userEvent.click(screen.getByText(NO_TIME_RANGE));
+  await selectOption('Single date', 'Range type');
+  // the picker is preselected with today, i.e. [midnight, next midnight)
+  const today = extendedDayjs().format('YYYY-MM-DD');
+  expect(await screen.findByDisplayValue(today)).toBeInTheDocument();
 });
