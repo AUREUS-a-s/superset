@@ -36,8 +36,8 @@ test('renders a single date picker', async () => {
     store,
   });
   await waitForElementToBeRemoved(() => screen.queryByLabelText('Loading'));
-  expect(screen.getByText('Date')).toBeInTheDocument();
-  expect(screen.getByRole('img', { name: 'calendar' })).toBeInTheDocument();
+  // reachable by its accessible name, not just by display value
+  expect(screen.getByLabelText('Date')).toBeInTheDocument();
 });
 
 test('shows the selected day in the picker input', async () => {

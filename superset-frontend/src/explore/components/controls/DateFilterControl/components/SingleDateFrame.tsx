@@ -59,6 +59,7 @@ export function SingleDateFrame(props: SingleDateFrameProps) {
         <div className="control-label">{t('Date')}</div>
         <Row>
           <DatePicker
+            aria-label={t('Date')}
             value={currentDay ? extendedDayjs(currentDay) : undefined}
             onChange={(datetime: Dayjs) => {
               if (datetime) {

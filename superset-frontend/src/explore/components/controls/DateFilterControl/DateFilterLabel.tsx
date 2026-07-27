@@ -199,7 +199,13 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
     if (singleDay !== undefined) {
       setActualTimeRange(singleDay);
     }
+    // Responses can arrive out of order, and a late one for a previous value
+    // would otherwise overwrite the label of the current one.
+    let ignoreResponse = false;
     fetchTimeRange(value).then(({ value: actualRange, error }) => {
+      if (ignoreResponse) {
+        return;
+      }
       if (error) {
         setEvalResponse(error || '');
         setValidTimeRange(false);
@@ -218,8 +224,9 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
           +--------------+------+----------+--------+----------+-------------+-----------+
         */
         if (singleDay !== undefined) {
-          // the pill is already showing the day; only the tooltip needs the
-          // range the day expands to
+          // re-assert rather than relying on the optimistic set above, so this
+          // stays the authoritative writer of the label
+          setActualTimeRange(singleDay);
           setTooltipTitle(
             getTooltipTitle(labelIsTruncated, singleDay, actualRange),
           );
@@ -244,6 +251,9 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
       setLastFetchedTimeRange(value);
       setEvalResponse(actualRange || value);
     });
+    return () => {
+      ignoreResponse = true;
+    };
   }, [guessedFrame, labelIsTruncated, labelRef, value]);
 
   useDebouncedEffect(

@@ -256,11 +256,19 @@ test('guessFrame still returns Custom for a non-day-aligned specific range', () 
   );
 });
 
-// In zones whose DST transition happens at midnight (e.g. America/Sao_Paulo on
-// 2018-11-04) that local midnight does not exist, so formatting the clock time
-// would emit 01:00 and a 25 hour range. Both bounds must stay exactly midnight.
+/*
+ * Both bounds must be literally midnight. This matters most in zones whose DST
+ * transition happens at midnight (America/Sao_Paulo on 2018-11-04, where 00:00
+ * does not exist): reading the clock off a Dayjs there yields 01:00 and a 25
+ * hour range. That zone cannot be exercised here — jest.config.js pins TZ to
+ * America/New_York, which transitions at 02:00, and Node ignores a later
+ * reassignment of process.env.TZ — so this only guards the output contract.
+ * The implementation is safe by construction instead: singleDateEncode reads
+ * the calendar day and appends the boundary as a literal, never formatting a
+ * clock time. Keep it that way.
+ */
 test.each(['2018-11-03', '2018-11-04', '2018-11-05', '2021-03-16'])(
-  'singleDateEncode keeps midnight boundaries for %s regardless of DST',
+  'singleDateEncode emits literal midnight boundaries for %s',
   day => {
     const encoded = singleDateEncode(extendedDayjs(day));
     const [since, until] = encoded.split(' : ');

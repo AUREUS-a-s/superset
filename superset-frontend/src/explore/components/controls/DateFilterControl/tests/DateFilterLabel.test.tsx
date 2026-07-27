@@ -21,17 +21,23 @@ import { Provider } from 'react-redux';
 import configureStore from 'redux-mock-store';
 
 import {
+  act,
   render,
   screen,
   selectOption,
   userEvent,
 } from 'spec/helpers/testing-library';
 
-import { NO_TIME_RANGE } from '@superset-ui/core';
+import { NO_TIME_RANGE, fetchTimeRange } from '@superset-ui/core';
 import { extendedDayjs } from '@superset-ui/core/utils/dates';
 import DateFilterLabel from '..';
 import { DateFilterControlProps } from '../types';
 import { DateFilterTestKey } from '../utils';
+
+jest.mock('@superset-ui/core', () => ({
+  ...jest.requireActual('@superset-ui/core'),
+  fetchTimeRange: jest.fn(async () => ({ value: 'evaluated range' })),
+}));
 
 const mockStore = configureStore([thunk]);
 
@@ -238,4 +244,32 @@ test('DateFilter pill follows the day steppers', () => {
     }),
   );
   expect(screen.getByText('2021-03-17')).toBeInTheDocument();
+});
+
+// The pill is written optimistically when the value is a whole day, so a
+// response still in flight for a PREVIOUS value must not overwrite it.
+test('DateFilter pill survives a stale time range response', async () => {
+  let answerStaleRequest: (result: { value: string }) => void = () => {};
+  (fetchTimeRange as jest.Mock)
+    .mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          answerStaleRequest = resolve;
+        }),
+    )
+    .mockImplementation(async () => ({
+      value: '2021-03-16 ≤ col < 2021-03-17',
+    }));
+
+  const { rerender } = render(setup({ ...defaultProps, value: 'Last week' }));
+  rerender(setup({ ...defaultProps, value: singleDayValue }));
+  expect(screen.getByText('2021-03-16')).toBeInTheDocument();
+
+  // the request for 'Last week' only answers now
+  await act(async () => {
+    answerStaleRequest({ value: 'a week ago ≤ col < now' });
+  });
+
+  expect(screen.getByText('2021-03-16')).toBeInTheDocument();
+  expect(screen.queryByText('Last week')).not.toBeInTheDocument();
 });
