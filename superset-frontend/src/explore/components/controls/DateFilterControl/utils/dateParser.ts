@@ -30,12 +30,16 @@ const MIDNIGHT_ISO = /^(\d{4}-\d{2}-\d{2})T00:00:00$/;
  * [midnight, next midnight), e.g.
  * 2021-03-16 -> "2021-03-16T00:00:00 : 2021-03-17T00:00:00".
  * The exclusive next-day upper bound matches Superset's time_col < until.
+ *
+ * Only the calendar day is read off the Dayjs; the midnight boundary is
+ * appended literally. Formatting the time instead would break in zones whose
+ * DST transition happens at midnight (that local midnight does not exist, so
+ * the clock reads 01:00 and the range would be shifted and 25 hours long).
  */
 export const singleDateEncode = (date: Dayjs): string => {
-  const start = date.startOf('day');
-  const since = start.format(DAYJS_FORMAT);
-  const until = start.add(1, 'day').format(DAYJS_FORMAT);
-  return `${since} : ${until}`;
+  const since = date.format(SINGLE_DATE_DAY_FORMAT);
+  const until = date.add(1, 'day').format(SINGLE_DATE_DAY_FORMAT);
+  return `${since}T00:00:00 : ${until}T00:00:00`;
 };
 
 /**

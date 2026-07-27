@@ -255,3 +255,20 @@ test('guessFrame still returns Custom for a non-day-aligned specific range', () 
     'Custom',
   );
 });
+
+// In zones whose DST transition happens at midnight (e.g. America/Sao_Paulo on
+// 2018-11-04) that local midnight does not exist, so formatting the clock time
+// would emit 01:00 and a 25 hour range. Both bounds must stay exactly midnight.
+test.each(['2018-11-03', '2018-11-04', '2018-11-05', '2021-03-16'])(
+  'singleDateEncode keeps midnight boundaries for %s regardless of DST',
+  day => {
+    const encoded = singleDateEncode(extendedDayjs(day));
+    const [since, until] = encoded.split(' : ');
+    expect(since).toBe(`${day}T00:00:00`);
+    expect(until).toBe(
+      `${extendedDayjs(day).add(1, 'day').format('YYYY-MM-DD')}T00:00:00`,
+    );
+    // and the frame must still recognize its own output
+    expect(guessSingleDate(encoded)).toBe(day);
+  },
+);
