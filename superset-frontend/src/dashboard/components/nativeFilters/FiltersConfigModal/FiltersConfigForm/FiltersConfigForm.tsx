@@ -93,6 +93,7 @@ import {
   getFiltersConfigModalTestId,
 } from '../FiltersConfigModal';
 import { FilterRemoval, NativeFiltersForm } from '../types';
+import { TIME_RANGE_FILTER_TYPES } from 'src/constants';
 import { CollapsibleControl } from './CollapsibleControl';
 import { ColumnSelect } from './ColumnSelect';
 import DatasetSelect from './DatasetSelect';
@@ -664,7 +665,7 @@ const FiltersConfigForm = (
   );
   const hasAvailableFilters = availableFilters.length > 0;
   const hasTimeDependency = availableFilters
-    .filter(filter => filter.type === 'filter_time')
+    .filter(filter => TIME_RANGE_FILTER_TYPES.includes(filter.type ?? ''))
     .some(filter => dependencies?.includes(filter.value));
 
   const extensionsRegistry = getExtensionsRegistry();
@@ -959,7 +960,7 @@ const FiltersConfigForm = (
                     </StyledFormItem>
                   )}
                 </StyledContainer>
-                {formFilter?.filterType === 'filter_time' && (
+                {TIME_RANGE_FILTER_TYPES.includes(formFilter?.filterType) && (
                   <FilterTypeInfo expanded={expanded}>
                     {t(`Dashboard time range filters apply to temporal columns defined in
           the filter section of each chart. Add temporal columns to the chart
@@ -1039,7 +1040,7 @@ const FiltersConfigForm = (
                   expandIconPosition="end"
                   key={`native-filter-config-${filterId}`}
                   items={[
-                    ...(itemTypeField !== 'filter_time'
+                    ...(!TIME_RANGE_FILTER_TYPES.includes(itemTypeField)
                       ? [
                           {
                             key: `${filterId}-${FilterPanels.configuration.key}`,

@@ -186,9 +186,19 @@ export enum FilterPlugins {
   Select = 'filter_select',
   Range = 'filter_range',
   Time = 'filter_time',
+  SingleDate = 'filter_singledate',
   TimeColumn = 'filter_timecolumn',
   TimeGrain = 'filter_timegrain',
 }
+
+/**
+ * Filter types whose value is a time range applied to the temporal columns
+ * charts already filter on, rather than to a column of a chosen dataset.
+ */
+export const TIME_RANGE_FILTER_TYPES: string[] = [
+  FilterPlugins.Time,
+  FilterPlugins.SingleDate,
+];
 
 export enum ChartCustomizationPlugins {
   DynamicGroupBy = 'chart_customization_dynamic_groupby',

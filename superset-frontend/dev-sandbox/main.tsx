@@ -8,6 +8,7 @@ import {
   SingleDateFrame,
 } from 'src/explore/components/controls/DateFilterControl/components';
 import DateFilterLabel from 'src/explore/components/controls/DateFilterControl';
+import SingleDateFilterPlugin from 'src/filters/components/SingleDate/SingleDateFilterPlugin';
 
 // CustomFrame/SingleDateFrame read common.locale via useLocale() -> useSelector;
 // a minimal static store is all they need.
@@ -76,6 +77,34 @@ function Sandbox() {
               name="time_range"
               value={value}
               onChange={onChange}
+            />
+          </div>
+        )}
+      </FrameHarness>
+      <FrameHarness
+        title="Single date filter plugin (option D) — inline, no popover"
+        initial="2021-03-16T00:00:00 : 2021-03-17T00:00:00"
+      >
+        {(value, onChange) => (
+          <div style={{ width: 260 }}>
+            <SingleDateFilterPlugin
+              {...({
+                formData: { inView: true },
+                height: 20,
+                width: 0,
+                filterState: { value },
+                setDataMask: (mask: { filterState?: { value?: string } }) =>
+                  onChange(mask.filterState?.value ?? ''),
+                setFocusedFilter: () => {},
+                unsetFocusedFilter: () => {},
+                setHoveredFilter: () => {},
+                unsetHoveredFilter: () => {},
+                setFilterActive: () => {},
+                behaviors: [],
+                data: [],
+                inputRef: { current: null },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              } as any)}
             />
           </div>
         )}
