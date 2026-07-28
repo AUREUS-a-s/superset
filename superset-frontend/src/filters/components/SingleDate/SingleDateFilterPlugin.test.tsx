@@ -98,7 +98,9 @@ test('publishes an empty filter when it has no value', async () => {
 
 test('renders nothing while out of view', () => {
   setup({
-    formData: { inView: false } as PluginFilterSingleDateProps['formData'],
+    formData: {
+      inView: false,
+    } as unknown as PluginFilterSingleDateProps['formData'],
   });
   expect(screen.queryByLabelText('Date')).not.toBeInTheDocument();
 });

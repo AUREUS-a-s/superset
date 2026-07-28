@@ -36,10 +36,10 @@ import { SingleDateFrameProps } from 'src/explore/components/controls/DateFilter
  * Picks a single calendar date, stored as that whole day. Selecting
  * 2021-03-16 yields "2021-03-16T00:00:00 : 2021-03-17T00:00:00".
  *
- * The picker is empty when `value` is not a whole-day range (for example when
- * the component is rendered directly with a relative range); choosing a date
- * replaces it. DateFilterLabel seeds a valid value when the user switches to
- * this frame, so in the control itself a date is always preselected.
+ * The picker is empty until a day is chosen, including when arriving from a
+ * range type that is not a whole day. Preselecting one would be a trap: the
+ * date picker reports changes only, so picking the preselected day would do
+ * nothing and there is no APPLY button to fall back on.
  *
  * Picking a day also applies it via `onApply` when provided, so the user does
  * not have to confirm a complete choice with the APPLY button.

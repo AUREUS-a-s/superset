@@ -378,3 +378,29 @@ def test_get_native_filters_params_unknown_filter_type():
     assert len(warnings) == 1
     assert "unrecognized filter type" in warnings[0]
     assert "filter_unknown_type" in warnings[0]
+
+
+def test_report_generate_native_filter_single_date():
+    """
+    Test the ``_generate_native_filter`` method with a single date filter.
+
+    A single date filter carries a whole-day time range, exactly as the time
+    filter does, so it must not fall through to the unrecognized-type warning.
+    """
+    report_schedule = ReportSchedule()
+    values = ["2021-03-16T00:00:00 : 2021-03-17T00:00:00"]
+
+    result, warning = report_schedule._generate_native_filter(
+        "filter_id", "filter_singledate", "column_name", values
+    )
+    assert result == {
+        "filter_id": {
+            "id": "filter_id",
+            "extraFormData": {
+                "time_range": "2021-03-16T00:00:00 : 2021-03-17T00:00:00"
+            },
+            "filterState": {"value": "2021-03-16T00:00:00 : 2021-03-17T00:00:00"},
+            "ownState": {},
+        }
+    }
+    assert warning is None

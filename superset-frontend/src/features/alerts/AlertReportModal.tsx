@@ -41,6 +41,7 @@ import {
   useTheme,
 } from '@apache-superset/core/theme';
 import rison from 'rison';
+import { TIME_RANGE_FILTER_TYPES } from 'src/constants';
 import { useSingleViewResource } from 'src/views/CRUD/hooks';
 import withToasts from 'src/components/MessageToasts/withToasts';
 import Owner from 'src/types/Owner';
@@ -691,7 +692,7 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
     vizType = 'filter_select',
     adhocFilters: any[] = [],
   ) => {
-    if (vizType === 'filter_time') {
+    if (TIME_RANGE_FILTER_TYPES.includes(vizType)) {
       return;
     }
 
@@ -759,7 +760,7 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
       const dashboardId = currentAlert?.dashboard?.value;
       const { filterType } = filter;
 
-      if (filterType === 'filter_time') {
+      if (TIME_RANGE_FILTER_TYPES.includes(filterType)) {
         return;
       }
 
@@ -1472,13 +1473,14 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
 
     let columnName: string;
     if (
-      filterType === 'filter_time' ||
+      TIME_RANGE_FILTER_TYPES.includes(filterType) ||
       filterType === 'filter_timecolumn' ||
       filterType === 'filter_timegrain'
     ) {
       columnName = filter.name;
     } else {
-      columnName = filter.targets[0].column.name;
+      // dataset-less filter types carry no target column
+      columnName = filter.targets[0].column?.name || filter.name;
     }
 
     const datasetId = filter.targets[0].datasetId || null;

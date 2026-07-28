@@ -28,8 +28,7 @@ const valueStyle: React.CSSProperties = {
   wordBreak: 'break-all',
 };
 
-// Each frame gets its own state so they don't fight over one shared value
-// (SingleDateFrame re-seeds any value that isn't already a single-day range).
+// Each frame gets its own state so a pick in one does not move the others.
 function FrameHarness({
   title,
   initial,

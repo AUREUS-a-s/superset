@@ -151,15 +151,6 @@ test('DateFilter should properly handle isOverflowingFilterBar prop changes', ()
   expect(popoverAfterRerender?.parentElement).not.toBe(document.body);
 });
 
-test('DateFilter seeds today as a whole-day range when switching to Single date', async () => {
-  render(setup());
-  userEvent.click(screen.getByText(NO_TIME_RANGE));
-  await selectOption('Single date', 'Range type');
-  // the picker is preselected with today, i.e. [midnight, next midnight)
-  const today = extendedDayjs().format('YYYY-MM-DD');
-  expect(await screen.findByDisplayValue(today)).toBeInTheDocument();
-});
-
 const singleDayValue = '2021-03-16T00:00:00 : 2021-03-17T00:00:00';
 
 test('DateFilter shows day steppers only for a single date value', () => {
@@ -302,4 +293,26 @@ test('DateFilter hides the confirm footer for the Single date frame', async () =
   expect(screen.queryByText('Actual time range')).not.toBeInTheDocument();
   // the picker itself is still there
   expect(screen.getByLabelText('Date')).toBeInTheDocument();
+});
+
+// The picker must start empty: a date picker reports changes only, so a
+// preselected day could never be applied now that this frame has no APPLY.
+test('DateFilter starts the Single date picker empty and applies the first pick', async () => {
+  const onChange = jest.fn();
+  render(setup({ ...defaultProps, onChange }));
+  userEvent.click(screen.getByText(NO_TIME_RANGE));
+  await selectOption('Single date', 'Range type');
+
+  const picker = await screen.findByLabelText('Date');
+  expect(picker).toHaveValue('');
+
+  const today = extendedDayjs();
+  userEvent.click(picker);
+  userEvent.click(await screen.findByTitle(today.format('YYYY-MM-DD')));
+
+  expect(onChange).toHaveBeenCalledWith(
+    `${today.format('YYYY-MM-DD')}T00:00:00 : ${today
+      .add(1, 'day')
+      .format('YYYY-MM-DD')}T00:00:00`,
+  );
 });

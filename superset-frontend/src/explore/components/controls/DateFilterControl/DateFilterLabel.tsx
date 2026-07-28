@@ -322,14 +322,10 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
     if (value === NO_TIME_RANGE) {
       setTimeRangeValue(NO_TIME_RANGE);
     }
-    // Seed a whole-day range so the single date picker always shows a date,
-    // unless the current value already is one.
-    if (
-      value === 'SingleDate' &&
-      guessSingleDate(timeRangeValue) === undefined
-    ) {
-      setTimeRangeValue(singleDateEncode(extendedDayjs()));
-    }
+    // The single date picker is deliberately left empty when arriving from
+    // another range type. Preselecting a day would make picking that same day
+    // a no-op for the date picker, which reports only changes, and this frame
+    // has no APPLY button to fall back on.
     setFrame(value);
   }
 
