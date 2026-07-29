@@ -21,7 +21,7 @@ a lot.
 |---|---|
 | `aimes/main` | Long-lived integration branch. All customizations land here. Based on tag `6.1.0`. |
 | `aimes/<name>` | Feature branches. Branch off `aimes/main`, PR back into `aimes/main`. |
-| `master` | Upstream mirror. Do not commit to it. |
+| `master` | Upstream mirror. **Never push to it** — see the warning below. |
 
 The integration branch is `aimes/main` rather than a bare `aimes` because git stores refs
 as filesystem paths: a branch named `aimes` cannot coexist with `aimes/<anything>`, since
@@ -30,6 +30,21 @@ keeps everything inside one namespace and sidesteps the collision entirely.
 
 For the same reason, do not create a branch named `aimes/main/<something>` — that would
 collide with `aimes/main` itself.
+
+> ⚠️ **Never push to `master`.** It still carries all 46 of upstream's workflow files, and
+> **20 of them trigger on push to `master`** — including `release.yml`,
+> `embedded-sdk-release.yml`, `superset-helm-release.yml`, `docker.yml` and the full Cypress
+> / Playwright / Python test matrices. Push events run the workflow files found on the
+> *pushed* branch, so pruning `aimes/main` gives `master` no protection whatsoever.
+>
+> The tempting mistake is "let me sync our `master` mirror" during an upstream upgrade. Do
+> not. Fetch upstream refs from the `upstream` remote and rebase onto the tag directly:
+>
+> ```bash
+> git remote add upstream https://github.com/apache/superset.git   # one-time
+> git fetch upstream --tags
+> git checkout -b aimes/upgrade-6.2.0 6.2.0
+> ```
 
 ## What we changed
 
@@ -51,7 +66,7 @@ Two AIMES-owned workflows remain:
 
 | Workflow | Purpose |
 |---|---|
-| `aimes-base-image.yml` | Builds and publishes `harbor.aureusplus.com/aimes/superset-base` |
+| `aimes-base-image.yml` | Builds and publishes the `aimes/superset-base` image to the internal registry |
 | `aimes-frontend-check.yml` | Lints and unit-tests the patch surface only |
 
 Both contain a guard that fails the build if any non-`aimes-*` workflow reappears — an
@@ -67,11 +82,15 @@ The frontend is compiled **inside Docker** (`Dockerfile --target lean`), never f
 built on a developer machine. Consumers use the wrapper image, not this one directly:
 
 ```
-this repo  ──▶  harbor.aureusplus.com/aimes/superset-base:6.1.0-aimes.N
+this repo  ──▶  <registry>/aimes/superset-base:6.1.0-aimes.N
                         │
                         ▼  (FROM, pinned by tag + digest)
-aimes-superset  ──▶  harbor.aureusplus.com/aimes/aimes-superset:<semver>
+aimes-superset  ──▶  <registry>/aimes/aimes-superset:<semver>
 ```
+
+`<registry>` is supplied at build time from the `HARBOR_HOSTNAME` organization variable.
+This repository is public, so keep internal hostnames, project layout and deployment
+topology out of it — that detail belongs in the private `aimes-superset` repo.
 
 The full architecture, versioning scheme and upgrade runbook live in `docs/MIGRATION-PLAN.md`
 in the [aimes-superset](https://github.com/AUREUS-a-s/aimes-superset) repo.
