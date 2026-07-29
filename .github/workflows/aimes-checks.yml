@@ -1,0 +1,92 @@
+# Lint and test the AIMES patch surface only.
+#
+# Deliberately NOT upstream's superset-frontend.yml / pre-commit.yml, which are 13+ and 3
+# runner jobs respectively and exercise the entire Superset codebase. Our divergence from
+# upstream is small and well-known, so we test exactly that - see PATCHES.md.
+#
+# What these protect:
+#   frontend  DST-boundary single-date bounds, the stale-async-response guard,
+#             the Single date native filter plugin
+#   backend   ReportSchedule handling of the filter_singledate native filter
+
+name: AIMES checks
+
+on:
+  push:
+    branches: [aimes/main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [aimes/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aimes-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-hygiene:
+    name: Assert only AIMES workflows are present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # An upstream upgrade reintroduces all of upstream's workflows. Fail loudly rather
+      # than let them run. See MIGRATION-PLAN.md §3.0.
+      - name: Check workflow allowlist
+        run: |
+          set -euo pipefail
+          unexpected="$(ls .github/workflows | grep -v '^aimes-' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Upstream workflows reintroduced: $(echo $unexpected | tr '\n' ' ')"
+            exit 1
+          fi
+
+  frontend:
+    name: Frontend - lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: superset-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: superset-frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: superset-frontend
+        run: |
+          npx eslint \
+            src/explore/components/controls/DateFilterControl \
+            src/filters/components/Time \
+            src/filters/components/SingleDate
+
+      - name: Unit tests
+        working-directory: superset-frontend
+        run: |
+          npm run test -- \
+            src/explore/components/controls/DateFilterControl \
+            src/filters/components/Time \
+            src/filters/components/SingleDate
+
+  backend:
+    name: Backend - unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Upstream composite action, retained deliberately when the inherited workflows
+      # were pruned.
+      - uses: ./.github/actions/setup-backend
+        with:
+          python-version: current
+          requirements-type: dev
+
+      - name: Unit tests
+        run: pytest tests/unit_tests/reports/model_test.py
