@@ -32,6 +32,7 @@ import {
 export function CalendarFrame({ onChange, value }: FrameComponentProps) {
   useEffect(() => {
     if (!CALENDAR_RANGE_SET.has(value as CalendarRangeType)) {
+      // eslint-disable-next-line react-you-might-not-need-an-effect/no-pass-data-to-parent -- pre-existing upstream effect, unrelated to the AIMES Single date patch
       onChange(PreviousCalendarWeek);
     }
   }, [onChange, value]);

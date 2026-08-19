@@ -30,6 +30,10 @@ import {
 import { guessSingleDate } from './dateParser';
 import { FrameType } from '../types';
 
+// This rule is misconfigured upstream as a global 'error' instead of being
+// scoped to *.stories.* files (see eslint-plugin-storybook's own recommended
+// config); this is a plain utility export, not a story.
+// eslint-disable-next-line storybook/prefer-pascal-case
 export const guessFrame = (timeRange: string): FrameType => {
   if (COMMON_RANGE_VALUES_SET.has(timeRange)) {
     return 'Common';

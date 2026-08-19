@@ -88,6 +88,7 @@ export default function SingleDateFilterPlugin(
   // Republish the applied value so its extraFormData is derived on load too,
   // for instance when the dashboard restores a default.
   useEffect(() => {
+    // eslint-disable-next-line react-you-might-not-need-an-effect/no-pass-data-to-parent -- mirrors the established TimeFilterPlugin on-load republish pattern for consistency between the two filter plugins
     handleDateChange(filterState.value);
   }, [filterState.value]);
 

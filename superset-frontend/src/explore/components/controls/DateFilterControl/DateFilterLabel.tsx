@@ -189,6 +189,7 @@ export default function DateFilterLabel(props: DateFilterControlProps) {
     if (value === NO_TIME_RANGE) {
       setActualTimeRange(NO_TIME_RANGE);
       setTooltipTitle(null);
+      // eslint-disable-next-line react-you-might-not-need-an-effect/no-adjust-state-on-prop-change -- pre-existing upstream effect, unrelated to the AIMES Single date patch
       setValidTimeRange(true);
       return;
     }
