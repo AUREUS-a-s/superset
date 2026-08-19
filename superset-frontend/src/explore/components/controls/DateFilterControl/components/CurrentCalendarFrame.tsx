@@ -28,6 +28,7 @@ import { CurrentRangeType, CurrentWeek, FrameComponentProps } from '../types';
 export function CurrentCalendarFrame({ onChange, value }: FrameComponentProps) {
   useEffect(() => {
     if (!CURRENT_CALENDAR_RANGE_SET.has(value as CurrentRangeType)) {
+      // eslint-disable-next-line react-you-might-not-need-an-effect/no-pass-data-to-parent -- pre-existing upstream effect, unrelated to the AIMES Single date patch
       onChange(CurrentWeek);
     }
   }, [value]);

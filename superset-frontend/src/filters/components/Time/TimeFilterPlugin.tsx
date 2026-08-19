@@ -108,6 +108,7 @@ export default function TimeFilterPlugin(props: PluginFilterTimeProps) {
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-you-might-not-need-an-effect/no-pass-data-to-parent -- pre-existing upstream effect, unrelated to the AIMES Single date patch
     handleTimeRangeChange(filterState.value);
   }, [filterState.value]);
 

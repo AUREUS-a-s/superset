@@ -21,6 +21,11 @@ import { Dayjs } from 'dayjs';
 import { CustomRangeType } from 'src/explore/components/controls/DateFilterControl/types';
 import { DAYJS_FORMAT } from './constants';
 
+/* eslint-disable storybook/prefer-pascal-case -- rule is misconfigured upstream
+ * as a global 'error' instead of being scoped to *.stories.* files (see
+ * eslint-plugin-storybook's own recommended config); none of this file's
+ * exports are stories. */
+
 const SINGLE_DATE_DAY_FORMAT = 'YYYY-MM-DD';
 // Matches a single boundary of a single-day range: a plain date at midnight.
 const MIDNIGHT_ISO = /^(\d{4}-\d{2}-\d{2})T00:00:00$/;

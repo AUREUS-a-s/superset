@@ -111,6 +111,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.TAGS }}
           build-args: |
+            # Apache builds the published 6.1.0 image with this base, overriding the
+            # Dockerfile's own 3.11.14-slim-trixie default. Verified from the official
+            # image's labels: base=3.10-slim-bookworm, sha=<the 6.1.0 tag>, target=lean.
+            # Matching it keeps our base a true drop-in for apache/superset:6.1.0, so the
+            # only difference from the previously deployed image is the AIMES patches.
+            # Changing this is a deliberate runtime upgrade, not a build detail.
+            PY_VER=3.10-slim-bookworm
             DEV_MODE=false
             BUILD_TRANSLATIONS=false
             INCLUDE_CHROMIUM=true
