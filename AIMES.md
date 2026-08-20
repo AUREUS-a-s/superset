@@ -62,15 +62,24 @@ Upstream's 46 workflow files have been removed from this branch. None of them we
 with `if: github.repository == 'apache/superset'`, so leaving them in place would have run
 Apache's full release automation and test matrices in our fork.
 
-Two AIMES-owned workflows remain:
+One AIMES-owned workflow remains:
 
 | Workflow | Purpose |
 |---|---|
-| `aimes-base-image.yml` | Builds and publishes the `aimes/superset-base` image to the internal registry |
-| `aimes-frontend-check.yml` | Lints and unit-tests the patch surface only |
+| `aimes-checks.yml` | Lints and unit-tests the patch surface. Three jobs: `ci-hygiene`, `frontend`, `backend`. Requires **no secrets**. |
 
-Both contain a guard that fails the build if any non-`aimes-*` workflow reappears — an
-upstream upgrade will drag them all back, and that must be loud rather than silent.
+It contains a guard that fails the build if any non-`aimes-*` workflow reappears — an
+upstream upgrade will drag all 46 back, and that must be loud rather than silent.
+
+### Base images are deliberately NOT built here
+
+This repository is **public**, and building the base image requires registry credentials.
+Those should not be reachable from public CI, so the build lives in the private
+`aimes-superset` repo, which checks this fork out with the default `GITHUB_TOKEN` — no PAT
+needed, precisely because we are public — and holds the credentials itself.
+
+The rule: **the public repo runs whatever needs no secrets; the private repo runs whatever
+does.**
 
 `.github/dependabot.yml` was also removed: daily npm updates would churn
 `package-lock.json`, the file most likely to conflict with our patch series. We take
@@ -82,10 +91,13 @@ The frontend is compiled **inside Docker** (`Dockerfile --target lean`), never f
 built on a developer machine. Consumers use the wrapper image, not this one directly:
 
 ```
-this repo  ──▶  <registry>/aimes/superset-base:6.1.0-aimes.N
-                        │
-                        ▼  (FROM, pinned by tag + digest)
-aimes-superset  ──▶  <registry>/aimes/aimes-superset:<semver>
+this repo (source)
+     │  built by aimes-superset CI, which checks this fork out
+     ▼
+<registry>/aimes/superset-base:6.1.0-aimes.N
+     │  FROM, pinned by tag + digest
+     ▼
+<registry>/aimes/aimes-superset:<semver>
 ```
 
 `<registry>` is supplied at build time from the `HARBOR_HOSTNAME` organization variable.
