@@ -196,6 +196,19 @@ shipped changes.
 
 ---
 
+## Proposed patches
+
+Designs that are agreed (or under discussion) but not yet implemented. They are **not** in
+the inventory above, because that inventory's only value is being a truthful record of what
+is actually in the tree. A design graduates into the inventory in the PR that lands its first
+commit.
+
+| Design | Reserved id | Status |
+|---|---|---|
+| [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md) — dashboard as a multi-sheet XLSX email report | P4 | Proposed; gated on a spike |
+
+---
+
 ## Retired patches
 
 None yet.
