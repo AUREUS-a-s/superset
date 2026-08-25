@@ -127,6 +127,22 @@ tabs, three table charts, one `filter_time` native filter). Numbers in §10.
   `reducers/dashboardInfo.ts:129` calls these fields "client-only scope data". So in the live
   dashboard the filter *does* apply to chart 3, and a report trusting the persisted value
   would silently omit it. The authoritative input is `scope` — see §5.3.
+- **Viewing the dashboard does not repair the persisted value.** Checked explicitly, because
+  "we always open the dashboard before trusting a report" is a tempting mitigation: after a
+  browser refresh the database still read `[1, 2]` with `changed_on` unmoved.
+  `setInScopeStatusOfFilters` (`actions/nativeFilters.ts:106`) ends at
+  `dispatch(dashboardInfoChanged({metadata}))` — Redux only, no PUT. A refresh fixes what the
+  viewer sees, not what a report would read; the two are independent.
+  Worse, the persisted value survived a dashboard save: chart 3 was created at 06:44:37.887
+  and the dashboard's `changed_on` is 06:44:38.07, yet the scope stayed `[1, 2]`. The layout
+  keys (`CHART-3`, `CHART-explore-2-1` against `CHART-R17oqiheE0Qq0OvyvheHF`) point at the
+  Explore "save & add to dashboard" flow, which never runs `calculateScopes` with the new
+  chart present. Effectively the stored value is a snapshot of the layout as of the last time
+  a *filter* was configured, not the last time the dashboard changed.
+  This also rules out "a human checks the dashboard before the report goes out" as a
+  safeguard: a scheduled report fires unattended, possibly months later, and possibly after
+  somebody else adds a chart from Explore. It would pass the manual check and fail in
+  production — intermittent wrongness, which is harder to catch than the consistent kind.
 - **Charts have `query_context` saved:** all three did, including one last saved in February
   under an earlier version. A wider census is still worth doing before we lean on it (§7
   risk 2), but it is not the blocker it might have been.
@@ -412,6 +428,11 @@ its own: one email, one workbook, filters honoured, every chart included.
 here.
 
 Remaining for phases 2–3: **3–5 working days**.
+
+**Process note.** The dashboard owner's habit of opening the dashboard in the UI and
+checking it before relying on a report is the right acceptance gate for phase 2, and the
+comparison in §9's manual test assumes it. It is *not* a substitute for computing scope
+correctly — see §4 for why viewing a dashboard changes nothing a report can read.
 
 **Acceptance for phase 2:** a dashboard report with two table charts and one select filter
 and one time filter arrives as one email with one `.xlsx`, two correctly named sheets, row
