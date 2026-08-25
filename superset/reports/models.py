@@ -85,6 +85,7 @@ class ReportDataFormat(StrEnum):
     PNG = "PNG"
     CSV = "CSV"
     TEXT = "TEXT"
+    XLSX = "XLSX"
 
 
 class ReportCreationMethod(StrEnum):
@@ -230,6 +231,56 @@ class ReportSchedule(AuditMixinNullable, ExtraJSONMixin, Model):
         rison = prison.dumps(params)
         rison = rison.replace("'", "%27")
         return rison, warnings
+
+    def get_native_filters_extra_form_data(
+        self,
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
+        """
+        The dashboard filters pinned on this report, as applicable filter payloads.
+
+        :func:`get_native_filters_params` serialises the equivalent state into a
+        screenshot URL, which is all a PNG/PDF report needs. A report that queries the
+        data instead needs the same state per filter, keyed by filter id so it can be
+        matched against the dashboard's scope configuration.
+
+        The loop mirrors :func:`get_native_filters_params` rather than refactoring it:
+        that method is upstream code on a rebase path we would rather not widen.
+
+        Returns:
+            A tuple of ([(filter_id, extraFormData)], list_of_warning_messages).
+        """
+        payloads: list[tuple[str, dict[str, Any]]] = []
+        warnings: list[str] = []
+        dashboard = self.extra.get("dashboard")
+        if not dashboard or not dashboard.get("nativeFilters"):
+            return payloads, warnings
+
+        for native_filter in dashboard.get("nativeFilters") or []:
+            native_filter_id = native_filter.get("nativeFilterId")
+            filter_type = native_filter.get("filterType")
+
+            if native_filter_id is None or filter_type is None:
+                warning_msg = (
+                    f"Skipping malformed native filter missing required "
+                    f"fields: {native_filter}"
+                )
+                warnings.append(warning_msg)
+                logger.warning(warning_msg)
+                continue
+
+            filter_config, filter_warning = self._generate_native_filter(
+                native_filter_id,
+                filter_type,
+                native_filter.get("columnName") or "",
+                native_filter.get("filterValues") or [],
+            )
+            if filter_warning:
+                warnings.append(filter_warning)
+            for filter_id, config in filter_config.items():
+                if extra_form_data := config.get("extraFormData"):
+                    payloads.append((filter_id, extra_form_data))
+
+        return payloads, warnings
 
     def _generate_native_filter(
         self,

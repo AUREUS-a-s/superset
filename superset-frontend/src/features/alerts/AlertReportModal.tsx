@@ -226,6 +226,10 @@ const FORMAT_OPTIONS = {
     label: t('Send as text'),
     value: 'TEXT',
   },
+  xlsx: {
+    label: t('Send as Excel'),
+    value: 'XLSX',
+  },
 };
 
 type FORMAT_OPTIONS_KEY = keyof typeof FORMAT_OPTIONS;
@@ -2400,7 +2404,7 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
                           value={reportFormat}
                           options={
                             contentType === ContentType.Dashboard
-                              ? ['pdf', 'png'].map(
+                              ? ['pdf', 'png', 'xlsx'].map(
                                   key =>
                                     FORMAT_OPTIONS[key as FORMAT_OPTIONS_KEY],
                                 )
@@ -2409,7 +2413,10 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
                                 TEXT_BASED_VISUALIZATION_TYPES.includes(
                                     chartVizType,
                                   )
-                                ? Object.values(FORMAT_OPTIONS)
+                                ? ['pdf', 'png', 'csv', 'txt'].map(
+                                    key =>
+                                      FORMAT_OPTIONS[key as FORMAT_OPTIONS_KEY],
+                                  )
                                 : ['pdf', 'png', 'csv'].map(
                                     key =>
                                       FORMAT_OPTIONS[key as FORMAT_OPTIONS_KEY],

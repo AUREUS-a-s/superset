@@ -83,6 +83,18 @@ class WebhookNotification(BaseNotification):
             files.append(
                 ("files", ("report.pdf", self._content.pdf, "application/pdf"))
             )
+        if self._content.xlsx:
+            files.append(
+                (
+                    "files",
+                    (
+                        self._content.xlsx_filename or "report.xlsx",
+                        self._content.xlsx,
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet",
+                    ),
+                )
+            )
         if self._content.screenshots:
             for i, screenshot in enumerate(self._content.screenshots):
                 files.append(

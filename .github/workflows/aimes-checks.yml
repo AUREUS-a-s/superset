@@ -89,4 +89,9 @@ jobs:
           requirements-type: dev
 
       - name: Unit tests
-        run: pytest tests/unit_tests/reports/model_test.py
+        run: |
+          pytest \
+            tests/unit_tests/reports/model_test.py \
+            tests/unit_tests/reports/dashboard_xlsx_test.py \
+            tests/unit_tests/utils/report_query_test.py \
+            tests/unit_tests/utils/excel_tests.py

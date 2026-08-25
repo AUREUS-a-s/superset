@@ -25,6 +25,7 @@ from flask import current_app as app
 
 from superset import db, security_manager
 from superset.commands.base import BaseCommand
+from superset.commands.chart.data.get_data_command import ChartDataCommand
 from superset.commands.dashboard.permalink.create import CreateDashboardPermalinkCommand
 from superset.commands.exceptions import CommandException, UpdateFailedError
 from superset.commands.report.alert import AlertCommand
@@ -44,6 +45,8 @@ from superset.commands.report.exceptions import (
     ReportScheduleSystemErrorsException,
     ReportScheduleUnexpectedError,
     ReportScheduleWorkingTimeoutError,
+    ReportScheduleXlsxFailedError,
+    ReportScheduleXlsxTimeout,
 )
 from superset.common.chart_data import ChartDataResultFormat, ChartDataResultType
 from superset.daos.report import (
@@ -76,7 +79,17 @@ from superset.utils import json
 from superset.utils.core import HeaderDataType, override_user, recipients_string_to_list
 from superset.utils.csv import get_chart_csv_data, get_chart_dataframe
 from superset.utils.decorators import logs_context, transaction
+from superset.utils.excel import df_dict_to_excel
 from superset.utils.pdf import build_pdf_from_screenshots
+from superset.utils.report_query import (
+    apply_extra_form_data,
+    attachment_filename,
+    charts_in_scope,
+    charts_in_tab,
+    merge_extra_form_data,
+    ordered_chart_ids,
+    sheet_name,
+)
 from superset.utils.screenshots import ChartScreenshot, DashboardScreenshot
 from superset.utils.slack import get_channels_with_search, SlackChannelTypes
 from superset.utils.urls import get_url_path
@@ -462,6 +475,251 @@ class BaseReportState:
 
         return pdf
 
+    def _get_dashboard_xlsx(self) -> bytes:
+        """
+        Build the dashboard as one workbook, one sheet per chart.
+
+        Unlike the screenshot and CSV paths this runs in-process: the data comes from
+        each chart's saved query context, executed directly, with the report's pinned
+        dashboard filters folded in. No browser and no HTTP round trip are involved.
+
+        :raises: ReportScheduleXlsxFailedError
+        """
+        start_time = datetime.utcnow()
+        dashboard = self._report_schedule.dashboard
+
+        try:
+            frames, notes = self._build_dashboard_frames(dashboard)
+        except SoftTimeLimitExceeded as ex:
+            logger.warning(
+                "Xlsx generation timeout after %.2fs - execution_id: %s",
+                (datetime.utcnow() - start_time).total_seconds(),
+                self._execution_id,
+            )
+            raise ReportScheduleXlsxTimeout() from ex
+        except Exception as ex:
+            logger.exception(
+                "Xlsx generation failed after %.2fs - execution_id: %s",
+                (datetime.utcnow() - start_time).total_seconds(),
+                self._execution_id,
+            )
+            raise ReportScheduleXlsxFailedError(
+                f"Failed generating xlsx {str(ex)}"
+            ) from ex
+
+        if not frames:
+            raise ReportScheduleXlsxFailedError(
+                "The dashboard produced no sheets. It may have no charts, or the "
+                "selected tab may contain none."
+            )
+
+        # The info sheet leads, so a recipient can see which filter state produced the
+        # numbers - the ambiguity that made per-chart CSV emails hard to work with.
+        sheets = {"Report info": self._dashboard_info_frame(notes), **frames}
+        xlsx = df_dict_to_excel(sheets, index=False)
+
+        logger.info(
+            "Xlsx generation for dashboard %s took %.2fs, %d sheets - execution_id: %s",
+            dashboard.id,
+            (datetime.utcnow() - start_time).total_seconds(),
+            len(sheets),
+            self._execution_id,
+        )
+        return xlsx
+
+    def _selected_chart_ids(
+        self, dashboard: Any, position: dict[str, Any]
+    ) -> list[int]:
+        """
+        Which charts belong in the workbook, in the order the dashboard lays them out.
+
+        Narrowed by the tab the report is pinned to, if any, and then by an explicit
+        chart selection. An absent selection means every chart, so a report created
+        before chart selection existed keeps working.
+        """
+        chart_ids = ordered_chart_ids(position, [slc.id for slc in dashboard.slices])
+
+        dashboard_state = self._report_schedule.extra.get("dashboard") or {}
+
+        if anchor := dashboard_state.get("anchor"):
+            # A single tab id; an anchor holding a list of tabs is a screenshot-only
+            # concept, so fall back to the whole dashboard rather than guessing.
+            if isinstance(anchor, str) and not anchor.startswith("["):
+                if in_tab := charts_in_tab(position, anchor, chart_ids):
+                    chart_ids = in_tab
+
+        if selected := dashboard_state.get("charts"):
+            selected_set = set(selected)
+            chart_ids = [
+                chart_id for chart_id in chart_ids if chart_id in selected_set
+            ]
+
+        return chart_ids
+
+    def _build_dashboard_frames(
+        self, dashboard: Any
+    ) -> tuple[dict[str, pd.DataFrame], list[str]]:
+        """
+        Query every selected chart, returning a frame per sheet plus any notes.
+
+        A chart that fails does not lose the workbook: it becomes a sheet carrying the
+        error, and the reason is recorded for the execution log and the info sheet.
+        """
+        position = json.loads(dashboard.position_json or "{}")
+        metadata = json.loads(dashboard.json_metadata or "{}")
+        chart_ids = self._selected_chart_ids(dashboard, position)
+
+        efd_by_chart, notes = self._filters_by_chart(metadata, position, chart_ids)
+
+        frames: dict[str, pd.DataFrame] = {}
+        taken: set[str] = {"Report info"}
+        charts_by_id = {slc.id: slc for slc in dashboard.slices}
+
+        for chart_id in chart_ids:
+            chart = charts_by_id[chart_id]
+            name = sheet_name(chart.slice_name or f"Chart {chart_id}", taken)
+            try:
+                frames[name] = self._chart_frame(
+                    chart, efd_by_chart.get(chart_id, {}), notes
+                )
+            except Exception as ex:  # pylint: disable=broad-except
+                # Deliberately broad: one chart's dataset being broken must not cost
+                # the recipient every other sheet.
+                logger.exception(
+                    "Chart %s failed for the xlsx report - execution_id: %s",
+                    chart_id,
+                    self._execution_id,
+                )
+                note = f"{chart.slice_name}: failed - {ex}"
+                notes.append(note)
+                frames[name] = pd.DataFrame({"error": [str(ex)]})
+
+        self._filter_warnings.extend(notes)
+        return frames, notes
+
+    def _chart_frame(
+        self,
+        chart: Any,
+        extra_form_data: dict[str, Any],
+        notes: list[str],
+    ) -> pd.DataFrame:
+        """Run one chart and return its data as a frame."""
+        if not chart.query_context:
+            raise ReportScheduleXlsxFailedError(
+                f"Chart '{chart.slice_name}' has no saved query context. Open the "
+                "chart and save it again so the report can query it."
+            )
+
+        query_context = apply_extra_form_data(
+            chart.get_query_context(), extra_form_data
+        )
+        payload = ChartDataCommand(query_context).run()["queries"][0]
+
+        if rejected := payload.get("rejected_filters"):
+            # A rejected filter does not fail the query - it is dropped and the chart
+            # returns unfiltered data. Silence here would mean shipping numbers that
+            # ignore a filter the recipient was told was applied.
+            columns = ", ".join(
+                str(item.get("column")) for item in rejected if item.get("column")
+            )
+            notes.append(
+                f"{chart.slice_name}: filter(s) on {columns} were rejected by the "
+                "dataset, so this sheet is NOT filtered by them"
+            )
+
+        # Built with colnames, not from the rows: an empty result would otherwise lose
+        # its header row entirely and arrive as a blank sheet.
+        return pd.DataFrame(payload.get("data") or [], columns=payload.get("colnames"))
+
+    def _filters_by_chart(
+        self,
+        metadata: dict[str, Any],
+        position: dict[str, Any],
+        chart_ids: list[int],
+    ) -> tuple[dict[int, dict[str, Any]], list[str]]:
+        """
+        Resolve the report's pinned filters onto the charts each one applies to.
+
+        Scope comes from the dashboard's ``scope`` configuration resolved against the
+        layout, never from the persisted ``chartsInScope`` - that value is a browser
+        cache which has been observed both stale and missing, and trusting it makes a
+        report disagree with the dashboard it claims to represent.
+        """
+        payloads, warnings = (
+            self._report_schedule.get_native_filters_extra_form_data()
+        )
+        if not payloads:
+            return {}, warnings
+
+        scopes_by_id = {
+            item["id"]: item.get("scope") or {}
+            for item in metadata.get("native_filter_configuration") or []
+            if item.get("id")
+        }
+
+        per_chart: dict[int, list[dict[str, Any]]] = {}
+        for filter_id, extra_form_data in payloads:
+            if filter_id not in scopes_by_id:
+                warnings.append(
+                    f"Filter {filter_id} is configured on the report but no longer "
+                    "exists on the dashboard; it was not applied"
+                )
+                continue
+            in_scope = charts_in_scope(scopes_by_id[filter_id], chart_ids, position)
+            if not in_scope:
+                warnings.append(
+                    f"Filter {filter_id} applies to none of the exported charts"
+                )
+            for chart_id in in_scope:
+                per_chart.setdefault(chart_id, []).append(extra_form_data)
+
+        return (
+            {
+                chart_id: merge_extra_form_data(items)
+                for chart_id, items in per_chart.items()
+            },
+            warnings,
+        )
+
+    def _dashboard_info_frame(self, notes: list[str]) -> pd.DataFrame:
+        """
+        A leading sheet recording what this workbook is and how it was filtered.
+
+        The original complaint about per-chart CSV emails was not only that there were
+        many of them, but that nothing said which filter state produced them.
+        """
+        dashboard_state = self._report_schedule.extra.get("dashboard") or {}
+        rows: list[tuple[str, str]] = [
+            ("Report", self._report_schedule.name or ""),
+            (
+                "Dashboard",
+                self._report_schedule.dashboard.dashboard_title
+                if self._report_schedule.dashboard
+                else "",
+            ),
+            ("Generated (UTC)", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")),
+        ]
+
+        for native_filter in dashboard_state.get("nativeFilters") or []:
+            # A time filter has no column, so fall back through the names the report
+            # actually stores rather than labelling every row "filter_time".
+            label = (
+                native_filter.get("filterName")
+                or native_filter.get("columnLabel")
+                or native_filter.get("columnName")
+                or native_filter.get("filterType")
+                or "filter"
+            )
+            values = ", ".join(
+                str(value) for value in native_filter.get("filterValues") or []
+            )
+            rows.append((f"Filter: {label}", values))
+
+        for note in notes:
+            rows.append(("Warning", note))
+
+        return pd.DataFrame(rows, columns=["Item", "Value"])
+
     def _get_csv_data(self) -> bytes:
         start_time = datetime.utcnow()
         url = self._get_url(result_format=ChartDataResultFormat.CSV)
@@ -620,6 +878,7 @@ class BaseReportState:
         csv_data = None
         screenshot_data = []
         pdf_data = None
+        xlsx_data = None
         embedded_data = None
         error_text = None
         header_data = self._get_log_data()
@@ -644,6 +903,13 @@ class BaseReportState:
                 csv_data = self._get_csv_data()
                 if not csv_data:
                     error_text = "Unexpected missing csv file"
+            elif (
+                self._report_schedule.dashboard
+                and self._report_schedule.report_format == ReportDataFormat.XLSX
+            ):
+                xlsx_data = self._get_dashboard_xlsx()
+                if not xlsx_data:
+                    error_text = "Unexpected missing xlsx file"
             if error_text:
                 return NotificationContent(
                     name=self._report_schedule.name,
@@ -677,6 +943,8 @@ class BaseReportState:
             url=url,
             screenshots=screenshot_data,
             pdf=pdf_data,
+            xlsx=xlsx_data,
+            xlsx_filename=attachment_filename(name, "xlsx") if xlsx_data else None,
             description=self._report_schedule.description,
             csv=csv_data,
             embedded_data=embedded_data,

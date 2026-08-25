@@ -71,6 +71,10 @@ class SlackV2Notification(SlackMixin, BaseNotification):  # pylint: disable=too-
     ) -> tuple[Union[str, None], Sequence[Union[str, IOBase, bytes]]]:
         if self._content.csv:
             return ("csv", [self._content.csv])
+        if self._content.xlsx:
+            # Without this branch an xlsx report to Slack would post a message with no
+            # file attached - the report would look delivered and carry no data.
+            return ("xlsx", [self._content.xlsx])
         if self._content.screenshots:
             return ("png", self._content.screenshots)
         if self._content.pdf:

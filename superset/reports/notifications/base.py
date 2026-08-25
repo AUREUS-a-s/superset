@@ -29,11 +29,15 @@ class NotificationContent:
     header_data: HeaderDataType  # this is optional to account for error states
     csv: Optional[bytes] = None  # bytes for csv file
     pdf: Optional[bytes] = None  # bytes for PDF file
+    xlsx: Optional[bytes] = None  # bytes for a multi-sheet xlsx workbook
     screenshots: Optional[list[bytes]] = None  # bytes for a list of screenshots
     text: Optional[str] = None
     description: Optional[str] = ""
     url: Optional[str] = None  # url to chart/dashboard for this screenshot
     embedded_data: Optional[pd.DataFrame] = None
+    # Filename for the xlsx attachment, already slugified for email - a name with a
+    # space in it can arrive as an invisible attachment.
+    xlsx_filename: Optional[str] = None
 
 
 class BaseNotification:  # pylint: disable=too-few-public-methods

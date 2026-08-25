@@ -3,9 +3,9 @@
 **Upstream baseline: 6.1.0** (authoritative value in `.aimes-upstream`)
 **Integration branch: `aimes/main`** · feature branches are `aimes/<name>`
 
-Scope at a glance: 13 commits on top of `6.1.0`, linear. Almost entirely frontend and
-almost entirely additive; the only backend divergence is 3 lines in
-`superset/reports/models.py` (P3).
+Scope at a glance: a linear series on top of `6.1.0`. P1–P3 are almost entirely frontend;
+P4 is the first substantial backend divergence, adding one new module plus ~400 lines across
+the reports subsystem.
 
 This file is the inventory of every deliberate divergence from upstream. It exists so that
 whoever performs the next upstream upgrade can tell, for each conflicting hunk, whether it
@@ -93,6 +93,107 @@ npm run test -- SingleDateFrame
 ```
 Then manually: open a chart, choose Single date, pick a day, step forward/back across a
 DST boundary, and confirm the pill text matches the applied filter.
+
+---
+
+### P4 — Dashboard as a multi-sheet XLSX email report
+
+| | |
+|---|---|
+| **Status** | Active — phase 2 shipped (all charts); chart-selection UI outstanding |
+| **Type** | Product feature (**frontend + backend**) |
+| **Conflict risk** | **medium** |
+| **Upstream status** | Not proposed upstream — see [discussion #32026](https://github.com/apache/superset/discussions/32026) |
+| **Owner** | Backend + Frontend |
+
+**What it does.** Adds `XLSX` as a report format for dashboard reports: one email, one
+workbook, one sheet per chart, with the report's configured dashboard filters applied to the
+**data** rather than only to a screenshot URL. A leading "Report info" sheet records the
+dashboard, the generation time, the filter values used and any warnings. Graphical charts are
+included as their underlying data table.
+
+**Why we need it.** AIMES treats a dashboard as the reporting unit. Upstream can deliver a
+dashboard only as a picture, or as per-chart CSVs at one email each. Recipients were manually
+reassembling eight CSVs from eight emails with nothing recording which filter state produced
+them — which is also why the info sheet is part of the feature rather than decoration.
+
+**Design document:** [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md)
+— including the phase 1 spike that inverted two of its decisions. Read it before changing any
+of this.
+
+**Files — new (no conflict potential):**
+- `superset/utils/report_query.py` — scope resolution, `extraFormData` application, sheet and
+  attachment naming
+- `tests/unit_tests/utils/report_query_test.py` (33 tests)
+- `tests/unit_tests/reports/dashboard_xlsx_test.py` (16 tests)
+
+**Files — modified:**
+
+| File | Churn | Note |
+|---|---|---|
+| `superset/commands/report/execute.py` | +268 / −0 | **The hotspot.** Six new methods plus one `elif` in `_get_notification_content`. Actively developed upstream |
+| `superset/reports/models.py` | +51 | `XLSX` enum member and `get_native_filters_extra_form_data()`. Also P3's file |
+| `superset/utils/excel.py` | +22 | Additive `df_dict_to_excel()`; `df_to_excel` untouched |
+| `superset/reports/notifications/webhook.py` | +12 | Uploads the workbook |
+| `superset/commands/report/exceptions.py` | +9 | `ReportScheduleXlsxFailedError` / `…Timeout` |
+| `superset/reports/notifications/email.py` | +8 | Attaches the workbook |
+| `superset/reports/notifications/base.py` | +4 | `xlsx` and `xlsx_filename` on `NotificationContent` |
+| `superset/reports/notifications/slack.py`, `slackv2.py` | +4 each | Uploads the workbook |
+| `superset-frontend/src/features/alerts/AlertReportModal.tsx` | +11 / −3 | `XLSX` format option, offered for dashboards only. Also P1/P3's file |
+| `.github/workflows/aimes-checks.yml` | +7 / −1 | Backend job runs the new tests |
+
+**Behaviour worth preserving across upgrades** (each of these was learned the hard way; a
+rebase that drops one produces a report that looks fine and is wrong):
+
+- **No alembic revision.** `report_format` is `String(50)` and chart selection lives in
+  `extra_json`. If a change here appears to need a migration, reconsider — the absence of one
+  is what keeps this patch cheap to carry.
+- **Never read `chartsInScope` / `tabsInScope` from `json_metadata`.** They are a browser-side
+  cache the frontend recomputes every render and never writes back; they have been observed
+  stale *and* absent on a real dashboard. Scope comes from `scope.rootPath`/`excluded`
+  resolved against `position_json` (`charts_in_scope`). Reading the cache "because it is right
+  there" reintroduces reports that silently omit charts. Tracked as U1 in
+  [`aimes-docs/upstream-candidates.md`](aimes-docs/upstream-candidates.md).
+- **Always inspect `rejected_filters` on every query payload.** A filter naming a column the
+  dataset lacks does not raise — the query succeeds and returns *unfiltered* data. Dropping
+  this check means delivering numbers that quietly ignore the filter the recipient was told
+  was applied.
+- **Build each frame with the payload's `colnames`**, not from the rows. `pd.DataFrame([])`
+  has no columns, so an empty chart would arrive as a blank sheet with no header row and look
+  like a broken export rather than an empty answer.
+- **Keep the temporal override an override, not an append.** Rewriting the existing
+  `TEMPORAL_RANGE` filter is what lets one dashboard time filter serve charts built on
+  different temporal columns; appending a new filter would need us to know each chart's
+  temporal column, which we do not.
+- **Per-chart failure isolation.** One chart failing yields an error *sheet*; it must never
+  cost the workbook. Easy to refactor away by accident, and the resulting failure — a
+  scheduled report silently missing — goes unnoticed for days.
+- **Slugify the attachment filename** (`attachment_filename`). A space in it can make the
+  attachment invisible to a receiving parser, and dashboard titles almost always contain
+  spaces. Tracked as U2 in `upstream-candidates.md`.
+- **`apply_extra_form_data` must stay narrow** — only the four keys
+  `ReportSchedule._generate_native_filter` can emit. It is frontend behaviour reimplemented
+  server-side, and it is the one part of this feature that can silently disagree with what a
+  dashboard shows.
+- Slack and webhook must keep their `xlsx` branches, or an XLSX report to those channels
+  arrives as a message with no file.
+- `filter_singledate` (P3) reaches this path as a `time_range`; the two patches are coupled.
+
+**Commits:**
+```
+<sha>  feat(reports): deliver a dashboard as a multi-sheet xlsx
+```
+
+**Verification after an upgrade:**
+```bash
+pytest tests/unit_tests/utils/report_query_test.py        tests/unit_tests/reports/dashboard_xlsx_test.py        tests/unit_tests/reports/model_test.py        tests/unit_tests/utils/excel_tests.py
+cd superset-frontend && npm run test -- src/features/alerts
+```
+Then manually, which the unit tests cannot cover: schedule an XLSX report on a dashboard that
+has a select filter and a time filter and at least one chart outside the filter's scope, run
+it, and confirm each sheet's row count matches that chart's own "Download as CSV" taken with
+the same filters applied by hand. A chart outside the scope must come back **unfiltered** —
+if every sheet is filtered identically, scope resolution has regressed.
 
 ---
 
@@ -205,7 +306,10 @@ commit.
 
 | Design | Reserved id | Status |
 |---|---|---|
-| [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md) — dashboard as a multi-sheet XLSX email report | P4 | Design approved by spike; implementation not started |
+| — | — | — |
+
+P4 has landed and moved into the inventory above; its design document remains at
+[`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md).
 
 ### Upstream defects we chose not to patch
 

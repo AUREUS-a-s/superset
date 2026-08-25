@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **Approved by spike** — phase 1 done, phase 2 not started |
-| **Target patch id** | P4 (reserve it in `PATCHES.md` only when the first commit lands) |
+| **Status** | **Phase 2 shipped** — all charts, filters applied. Phase 3 (chart-selection UI) outstanding |
+| **Target patch id** | P4 — now in the `PATCHES.md` inventory |
 | **Upstream baseline** | 6.1.0 |
 | **Type** | Product feature (backend + frontend) |
 | **Owner** | Backend (lead) + Frontend |
@@ -429,16 +429,37 @@ filters.
 one answer inverted a design decision (scoping) and one uncovered a failure mode the design
 had assumed away (silently dropped filters).
 
-**Phase 2 — all charts, filters applied (2–3 days).** `XLSX` enum, `apply_extra_form_data`,
-`df_dict_to_excel`, execute branch, email attachment, other channels, tests. Ships useful on
-its own: one email, one workbook, filters honoured, every chart included.
+**Phase 2 — all charts, filters applied. DONE.** Shipped as described, with three
+departures from this document worth recording:
 
-**Phase 3 — chart selection UI (1–2 days).** The multi-select and `extra["dashboard"]["charts"]`.
+- **`superset/reports/models.py` grew a method, not one line.**
+  `get_native_filters_extra_form_data()` returns the pinned filters as applicable payloads
+  keyed by filter id. The alternative was for the command to reach into
+  `_generate_native_filter`, which is private; a public accessor beside the existing
+  `get_native_filters_params` is the smaller sin.
+- **A "Report info" sheet leads the workbook**, carrying the dashboard name, generation time,
+  the filter values used and any warnings. Not in the original plan, but §1's complaint was
+  partly that nothing recorded which filter state produced a set of CSVs — and it is where a
+  rejected filter becomes visible to the recipient rather than only to the execution log.
+- **The frontend change came forward from phase 3.** Without the `XLSX` option in the format
+  select the feature is unreachable through the UI, so "ships useful on its own" required it.
+  Phase 3 remains the chart-*selection* UI; the backend already honours
+  `extra["dashboard"]["charts"]` when present.
+
+Verified end to end against the live stack: an XLSX report on the two-tab dashboard was
+created, executed through `AsyncExecuteReportScheduleCommand`, logged `Success`, and arrived
+at the local mail sink as `AIMES_P4_e2e_<id>.xlsx` — four sheets, the filter applied to the
+two charts in scope and correctly *not* applied to the excluded one, and the zero-row sheet
+keeping its nine column headers. 49 new unit tests, 68 passing in total across the touched
+backend suites, 44 passing in the frontend alerts suite.
+
+**Phase 3 — chart selection UI (1–2 days).** The multi-select only; the backend side of
+`extra["dashboard"]["charts"]` shipped with phase 2 and is covered by tests.
 
 **Phase 4 — optional, decide later.** Chart images in sheets. Explicitly *not* committed to
 here.
 
-Remaining for phases 2–3: **3–5 working days**.
+Remaining: **phase 3, 1–2 working days.**
 
 **Process note.** The dashboard owner's habit of opening the dashboard in the UI and
 checking it before relying on a report is the right acceptance gate for phase 2, and the
