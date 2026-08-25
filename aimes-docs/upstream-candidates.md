@@ -101,3 +101,50 @@ names, which the current f-string does not.
 
 **How we work around it.** P4 slugifies the attachment filename. That is enough for us and
 keeps the fix out of phase 2's scope — see `P4-dashboard-xlsx-report.md` §5.6.
+
+---
+
+## U3 — the report modal reads `targets[0]` on filters that have no targets
+
+**Status:** not reported upstream · **Affects:** 6.1.0 · **Severity for us:** was high — it
+made the filter feature unusable · **We patched this one** (P5)
+
+**Symptom.** Selecting a time filter in a report's "Dashboard Filter" picker throws and the
+app shows an error page:
+
+```
+TypeError: can't access property 0, o.targets is undefined
+```
+
+**Why.** A dataset-less native filter — `filter_time`, `filter_timegrain`,
+`filter_timecolumn`, and our `filter_singledate` — has **no `targets` key at all** in
+`json_metadata`. Confirmed against a real dashboard, whose `filter_time` entry has keys
+`controlValues, defaultDataMask, defaultValue, defaultValueQueriesData, description,
+filterType, id, name, requiredFirst, scope, type` and no `targets`.
+
+`AlertReportModal.tsx` reads it unconditionally in four places. Upstream 6.1 has all four;
+one was already fixed as a side effect of our P3, and the other three remained:
+
+| Line (6.1) | Read | Guarded upstream? |
+|---|---|---|
+| 756 | `const { datasetId } = filter.targets[0]` | no — the time-filter early return sits *after* it |
+| 758 | `filter.targets[0].column?.name` | no — same block |
+| 1481 | `columnName = filter.targets[0].column.name` | fixed by P3 (branch on filter type) |
+| 1484 | `const datasetId = filter.targets[0].datasetId \|\| null` | **no — runs for every filter type** |
+
+Line 1484 is the one users hit: the surrounding code carefully branches on filter type to
+avoid touching `targets` for time filters, and then reads `targets[0]` on the next line
+regardless.
+
+The type declaration is complicit. `NativeFilterObject.targets` is declared as required
+`Array<...>`, so TypeScript actively endorses `targets[0]`. That is why the same mistake
+appears four times in one file.
+
+**Why upstream has not noticed.** `ALERT_REPORTS_FILTER` defaults to `False`, so the whole
+picker is unreachable in a default install. We turned the flag on, which is what exposed it.
+
+**What a fix would look like.** Make `targets` optional in the type — the compiler then
+finds every site — and guard each read with `filter.targets?.[0]`. Additionally, move the
+time-filter early return in `addNativeFilterOptions` above the reads. That is the shape of
+our P5, and it is small, self-contained and free of AIMES concepts: a good upstream PR.
+

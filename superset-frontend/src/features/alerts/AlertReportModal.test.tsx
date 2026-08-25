@@ -1562,3 +1562,119 @@ test('does not offer Excel for a chart report', async () => {
   // a chart has no workbook path on the backend, so the option must not be offered
   expect(screen.queryByText(/Send as Excel/i)).not.toBeInTheDocument();
 });
+
+// --------------- dataset-less native filters (no `targets`) ------------------
+
+// A time filter's dashboard metadata has no `targets` key at all. Reading
+// `targets[0]` therefore threw "can't access property 0, targets is undefined" the
+// moment such a filter was selected - reachable only once ALERT_REPORTS_FILTER is on.
+const TIME_FILTER_WITHOUT_TARGETS = {
+  id: 'NATIVE_FILTER-time',
+  name: 'Period',
+  filterType: 'filter_time',
+  adhoc_filters: [],
+  scope: { rootPath: ['ROOT_ID'], excluded: [] },
+  tabsInScope: [],
+  type: 'NATIVE_FILTER',
+};
+
+const setupTimeFilterMocks = (withSavedFilter: boolean) => {
+  fetchMock.callHistory.clear();
+  fetchMock.removeRoute(FETCH_DASHBOARD_ENDPOINT);
+  fetchMock.removeRoute(tabsEndpoint);
+
+  fetchMock.get(
+    FETCH_DASHBOARD_ENDPOINT,
+    {
+      result: {
+        ...generateMockPayload(true),
+        extra: {
+          dashboard: {
+            anchor: '',
+            nativeFilters: withSavedFilter
+              ? [
+                  {
+                    nativeFilterId: 'NATIVE_FILTER-time',
+                    filterName: 'Period',
+                    filterType: 'filter_time',
+                    filterValues: ['2026-01-01T00:00:00 : 2026-01-02T00:00:00'],
+                  },
+                ]
+              : [],
+          },
+        },
+      },
+    },
+    { name: FETCH_DASHBOARD_ENDPOINT },
+  );
+  fetchMock.get(
+    tabsEndpoint,
+    {
+      result: {
+        all_tabs: {},
+        tab_tree: [],
+        native_filters: { all: [TIME_FILTER_WITHOUT_TARGETS] },
+      },
+    },
+    { name: tabsEndpoint },
+  );
+};
+
+test('opens a saved report whose time filter has no targets', async () => {
+  setupTimeFilterMocks(true);
+  const store = createStore({}, reducerIndex);
+
+  try {
+    render(<AlertReportModal {...generateMockedProps(true, true)} />, { store });
+    userEvent.click(screen.getByTestId('contents-panel'));
+    await screen.findByText(/test dashboard/i);
+    await waitFor(() => {
+      expect(
+        fetchMock.callHistory
+          .calls()
+          .some(c => c.url.includes('/dashboard/1/tabs')),
+      ).toBe(true);
+    });
+
+    // Reaching here at all is the assertion: addNativeFilterOptions used to read
+    // targets[0] before its time-filter guard, so this threw during the effect.
+    expect(
+      screen.getByRole('combobox', { name: /select filter/i }),
+    ).toBeInTheDocument();
+  } finally {
+    restoreAnchorMocks();
+  }
+});
+
+test('selecting a time filter with no targets does not throw', async () => {
+  setupTimeFilterMocks(false);
+  const store = createStore({}, reducerIndex);
+
+  try {
+    render(<AlertReportModal {...generateMockedProps(true, true)} />, { store });
+    userEvent.click(screen.getByTestId('contents-panel'));
+    await screen.findByText(/test dashboard/i);
+    await waitFor(() => {
+      expect(
+        fetchMock.callHistory
+          .calls()
+          .some(c => c.url.includes('/dashboard/1/tabs')),
+      ).toBe(true);
+    });
+
+    const filterSelector = screen.getByRole('combobox', {
+      name: /select filter/i,
+    });
+    await comboboxSelect(filterSelector, 'Period', () =>
+      screen.getAllByText(/Period/i)[0],
+    );
+
+    // The handler read targets[0].datasetId for every filter type, so this click was
+    // the reported crash. The modal surviving it is the regression guard.
+    expect(
+      screen.getByRole('combobox', { name: /select filter/i }),
+    ).toBeInTheDocument();
+  } finally {
+    restoreAnchorMocks();
+  }
+});

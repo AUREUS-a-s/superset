@@ -205,6 +205,61 @@ if every sheet is filtered identically, scope resolution has regressed.
 
 ---
 
+### P5 — Guard dataset-less native filters in the report modal
+
+| | |
+|---|---|
+| **Status** | Active — shipped |
+| **Type** | Bug fix (upstream defect, **frontend only**) |
+| **Conflict risk** | **low** (four one-line guards plus a type change) |
+| **Upstream status** | Not proposed yet — a good candidate, see U3 |
+| **Owner** | Frontend |
+
+**What it does.** Stops the report modal throwing `TypeError: can't access property 0,
+targets is undefined` when a dataset-less native filter — `filter_time`,
+`filter_timegrain`, `filter_timecolumn`, our `filter_singledate` — is selected as a report
+filter. Guards every `filter.targets[0]` read, moves a time-filter early return above the
+reads it was supposed to protect, and makes `targets` optional in the type so the compiler
+catches the next one.
+
+**Why we need it.** The defect is upstream's, but it is unreachable there:
+`ALERT_REPORTS_FILTER` defaults off, so nobody can open the picker. We enabled that flag to
+make dashboard filters usable in reports (a prerequisite for P4), which turned a dormant bug
+into a hard failure on the first thing a user tries.
+
+**Files — modified:**
+
+| File | Churn | Note |
+|---|---|---|
+| `superset-frontend/src/features/alerts/AlertReportModal.tsx` | +12 / −5 | Three guarded reads plus the reordered early return. Also P1/P3/P4's file |
+| `superset-frontend/src/features/alerts/types.ts` | +8 / −4 | `targets`, `column` and `datasetId` made optional |
+| `superset-frontend/src/features/alerts/AlertReportModal.test.tsx` | +100 | Two regression tests |
+
+**Behaviour worth preserving across upgrades:**
+- **`targets` must stay optional in the type.** It is the only thing that stops the mistake
+  recurring: declared as required, TypeScript endorses `targets[0]` and the same bug was
+  written four times in one file.
+- **In `addNativeFilterOptions`, the `TIME_RANGE_FILTER_TYPES` early return must stay
+  *above* the `targets` reads.** The guard already existed upstream; it simply sat after the
+  code it needed to protect, which is an easy thing for a rebase to restore.
+- An upstream upgrade that rewrites this file will reintroduce all of it. The regression
+  tests are the tripwire — keep them running in CI.
+
+**Commits:**
+```
+<sha>  fix(alerts): guard native filters that have no target column
+```
+
+**Verification after an upgrade:**
+```bash
+cd superset-frontend && npm run test -- src/features/alerts
+```
+Then manually: on a dashboard with a time filter, create a report, open the Contents panel
+and pick that filter in "Dashboard Filter". It must select cleanly rather than showing an
+error page.
+
+---
+
 ### P3 — "Single date" native filter + report support
 
 | | |

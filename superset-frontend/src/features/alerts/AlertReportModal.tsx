@@ -765,16 +765,20 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
       const filter = nativeFilters.filter(
         f => f.id === nativeFilter.nativeFilterId,
       )[0];
+      // The saved filter may have been deleted from the dashboard since.
+      if (!filter) return;
 
-      const { datasetId } = filter.targets[0];
-      const filterName = filter.name;
-      const columnName = filter.targets[0].column?.name || filterName;
-      const dashboardId = currentAlert?.dashboard?.value;
       const { filterType } = filter;
-
+      // This must precede any read of `targets`, which dataset-less filter types do not
+      // have. The guard used to sit after the reads, so selecting a time filter threw.
       if (TIME_RANGE_FILTER_TYPES.includes(filterType)) {
         return;
       }
+
+      const datasetId = filter.targets?.[0]?.datasetId ?? null;
+      const filterName = filter.name;
+      const columnName = filter.targets?.[0]?.column?.name || filterName;
+      const dashboardId = currentAlert?.dashboard?.value;
 
       // eslint-disable-next-line consistent-return
       return fetchDashboardFilterValues(
@@ -1539,10 +1543,12 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
       columnName = filter.name;
     } else {
       // dataset-less filter types carry no target column
-      columnName = filter.targets[0].column?.name || filter.name;
+      columnName = filter.targets?.[0]?.column?.name || filter.name;
     }
 
-    const datasetId = filter.targets[0].datasetId || null;
+    // Read for every filter type, including the dataset-less ones handled above - which
+    // is what made selecting a time filter fail with "targets is undefined".
+    const datasetId = filter.targets?.[0]?.datasetId ?? null;
 
     const columnLabel = nativeFilterOptions.filter(
       filter => filter.value === nativeFilterId,

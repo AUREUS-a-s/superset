@@ -235,11 +235,15 @@ export type NativeFilterObject = {
   };
   tabsInScope: string[];
   adhoc_filters: any[];
-  targets: Array<{
-    column: {
+  // Absent entirely on dataset-less filter types - filter_time, filter_singledate,
+  // filter_timegrain, filter_timecolumn - so every read of it must be guarded. Typed as
+  // optional deliberately: the compiler is the only thing that reliably stops the next
+  // reader from writing `targets[0]` again.
+  targets?: Array<{
+    column?: {
       name: string;
     };
-    datasetId: number;
+    datasetId?: number;
   }>;
   type: string;
 };
