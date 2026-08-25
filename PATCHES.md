@@ -247,7 +247,7 @@ into a hard failure on the first thing a user tries.
 
 **Commits:**
 ```
-<sha>  fix(alerts): guard native filters that have no target column
+a8d1927269  fix(alerts): guard native filters that have no target column
 ```
 
 **Verification after an upgrade:**
