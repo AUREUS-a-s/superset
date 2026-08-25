@@ -181,7 +181,7 @@ rebase that drops one produces a report that looks fine and is wrong):
 
 **Commits:**
 ```
-<sha>  feat(reports): deliver a dashboard as a multi-sheet xlsx
+ef2aa71bb3  feat(reports): deliver a dashboard as a multi-sheet xlsx
 ```
 
 **Verification after an upgrade:**
