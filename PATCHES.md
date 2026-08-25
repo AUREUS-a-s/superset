@@ -205,7 +205,7 @@ commit.
 
 | Design | Reserved id | Status |
 |---|---|---|
-| [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md) — dashboard as a multi-sheet XLSX email report | P4 | Proposed; gated on a spike |
+| [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md) — dashboard as a multi-sheet XLSX email report | P4 | Design approved by spike; implementation not started |
 
 ---
 

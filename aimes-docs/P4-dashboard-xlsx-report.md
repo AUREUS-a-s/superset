@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed** — design only, nothing implemented |
+| **Status** | **Approved by spike** — phase 1 done, phase 2 not started |
 | **Target patch id** | P4 (reserve it in `PATCHES.md` only when the first commit lands) |
 | **Upstream baseline** | 6.1.0 |
 | **Type** | Product feature (backend + frontend) |
@@ -10,9 +10,10 @@
 | **Feature branch** | `aimes/dashboard-xlsx-report` |
 
 This document exists to be argued with *before* code is written. It records the problem, the
-evidence gathered from the 6.1.0 tree, the chosen design, the alternatives rejected and why,
-and the open questions that a spike must close. The draft `PATCHES.md` entry is at the end,
-ready to paste into the implementation PR.
+evidence, the chosen design, the alternatives rejected and why. The phase 1 spike has been
+run — §10 has its output, and two of its findings changed the design rather than merely
+confirming it. The draft `PATCHES.md` entry is at the end, ready to paste into the
+implementation PR.
 
 ---
 
@@ -112,18 +113,41 @@ against a restored copy of the metadata dump; assumed items are the spike's job.
   handled in `query_context_processor.py:260` — so "xlsx" is already a first-class result
   format elsewhere in the product.
 
-**Assumed — must be closed by the spike.**
+**Settled by the phase 1 spike** — run against dashboard 1 ("Superset users table": two
+tabs, three table charts, one `filter_time` native filter). Numbers in §10.
 
-- **`chartsInScope` is present and trustworthy.** Filter→chart scoping is expected to live in
-  `json_metadata.native_filter_configuration[].chartsInScope`. It is written by the frontend;
-  in the Python tree only the exporter reads it (`commands/dashboard/export_example.py`). The
-  restored dump could not confirm it: that snapshot is a bootstrap seed with one dashboard,
-  one chart and **zero** native filters (`native_filter_configuration` does not occur; the
-  only `chartsInScope` occurrence belongs to `crossFilters` config). Needs checking against a
-  real AIMES dashboard. Fallback in §5.3.
-- **Charts have `query_context` saved.** True for the one seed chart. Unknown as a
-  proportion across real AIMES dashboards; charts saved by older Superset versions may have
-  it empty. Mitigation in §7.
+- **`chartsInScope` must NOT be read. It is a stale client-side cache.** It does exist in
+  `json_metadata.native_filter_configuration[]` — but on a dashboard whose filter is scoped
+  globally (`rootPath: ["ROOT_ID"], excluded: []`) it read `[1, 2]` while the dashboard
+  carried charts `[1, 2, 3]`; `tabsInScope` likewise listed only the first of the two tabs.
+  The third chart was added after the filter was configured, and the persisted values were
+  never recomputed. They are recomputed **on every render** instead:
+  `DashboardContainer.tsx:206` runs `calculateScopes()` → `getChartIdsInFilterScope()` over
+  the current layout and dispatches the result into Redux, and
+  `reducers/dashboardInfo.ts:129` calls these fields "client-only scope data". So in the live
+  dashboard the filter *does* apply to chart 3, and a report trusting the persisted value
+  would silently omit it. The authoritative input is `scope` — see §5.3.
+- **Charts have `query_context` saved:** all three did, including one last saved in February
+  under an earlier version. A wider census is still worth doing before we lean on it (§7
+  risk 2), but it is not the blocker it might have been.
+- **A filter on a column the chart's dataset lacks is SILENTLY DROPPED, not an error.** The
+  query returns `status: success`, no `error`, and the *unfiltered* row count — 28 rows
+  either way — with the column absent from the emitted SQL. That is worse than failing: the
+  sheet would carry plausible, wrong numbers. Superset does report it, in the payload's
+  `rejected_filters` (`reason: COL_NOT_IN_DATASOURCE`), so the fix is to read that field
+  rather than to pre-validate against the dataset. See §5.3.
+- **An empty result set loses its column headers** if the DataFrame is built from `data`
+  alone — `pd.DataFrame([])` has no columns, so the sheet comes out blank with not even a
+  header row. The payload's `colnames` is populated regardless, so build with
+  `pd.DataFrame(data, columns=payload["colnames"])`.
+- **An attachment filename containing a space breaks attachment parsing.** Verified by
+  sending the same bytes twice through `send_email_smtp`, changing only the name:
+  `report.xlsx` arrives as an attachment; `Superset users table.xlsx` arrives with the
+  attachment invisible to the parser. The cause is upstream — `MIMEApplication(body,
+  Content_Disposition=..., Name=...)` (`utils/core.py:865`) emits Content-Disposition as a
+  *parameter of Content-Type* rather than as its own header, so no
+  `Content-Disposition: attachment` header exists at all. A dashboard title almost always
+  contains spaces, so this sits on our critical path — see §5.6.
 
 ## 5. Design
 
@@ -163,6 +187,11 @@ Roughly 100 lines with the edge cases. It must be **pure and side-effect-free on
 — deep-copy the query objects, because a `QueryContext` built from a `Slice` holds a
 reference to a live ORM object and we must not dirty the session.
 
+Building the DataFrame is not quite `pd.DataFrame(payload["data"])`: an empty result set
+would then have no columns at all and produce a blank sheet without a header row. Use
+`pd.DataFrame(data, columns=payload["colnames"])`, which the spike confirmed keeps the
+headers on a zero-row chart.
+
 This function is the whole conceptual risk of the patch: it re-implements, server-side, a
 narrow slice of what the dashboard frontend does when it merges filter state into a chart's
 form data. It is narrow on purpose — only the four keys the report schedule can actually
@@ -182,20 +211,54 @@ produce. It is not a general `extraFormData` interpreter and must not grow into 
 
 ### 5.3 Filter scoping
 
-Primary: `json_metadata.native_filter_configuration[].chartsInScope` — a filter applies to a
-chart iff the chart id is listed.
+**Do not read `chartsInScope`.** The spike found it stale (§4), and the frontend treats it as
+a cache it recomputes on every render. Reading it would make reports disagree with the
+dashboard, in the silent direction: charts added after a filter was configured would be
+left unfiltered.
 
-Fallback if that field proves absent or unreliable (see §4): derive scope from
-`scope.rootPath` / `scope.excluded` against `position_json`, or — as a deliberately blunt
-last resort for phase 1 — **apply every configured filter to every chart** and say so in the
-UI. Blunt is acceptable initially because an AIMES report's filters are chosen by the report
-author for the whole report; it is not acceptable long-term because a filter on a column a
-chart's dataset does not have will make that chart's query fail.
+Instead port `getChartIdsInFilterScope`
+(`superset-frontend/src/dashboard/util/getChartIdsInFilterScope.ts`) to Python. For the
+scopes a report can carry it is small — a chart is in scope iff its id is not in
+`scope.excluded` and at least one entry of its layout item's `parents` appears in
+`scope.rootPath`:
 
-Failure isolation is a requirement either way: **one chart failing must not lose the whole
-workbook.** A failed chart yields a sheet containing the error text, plus a warning appended
-to `self._filter_warnings` (the mechanism already exists for filter warnings and already
-surfaces in the execution log).
+```python
+def charts_in_scope(scope, chart_ids, position):
+    root_path = scope.get("rootPath") or []
+    excluded = scope.get("excluded") or []
+    return sorted(
+        cid
+        for item in position.values()
+        if isinstance(item, dict) and item.get("type") == "CHART"
+        for cid in [(item.get("meta") or {}).get("chartId")]
+        if cid is not None and cid in chart_ids and cid not in excluded
+        and any(parent in root_path for parent in item.get("parents") or [])
+    )
+```
+
+Verified in the spike: this returns `[1, 2, 3]` where the persisted cache said `[1, 2]`,
+matching what the dashboard actually renders. The upstream function also handles a
+`selectedLayers` case for per-layer deck.gl scoping, which no report can currently produce —
+leave it out rather than porting logic we cannot exercise, and treat its presence in a scope
+as a reason to warn.
+
+**Reading `rejected_filters` is mandatory, not optional.** A filter naming a column the
+chart's dataset lacks does not fail — it is dropped and the query succeeds with unfiltered
+data (§4). Every chart's payload must therefore be inspected:
+
+```python
+if rejected := payload["queries"][0].get("rejected_filters"):
+    # the sheet is NOT the data that was asked for - say so
+```
+
+A rejected filter must surface as a warning on the execution log and be visible in the
+delivered workbook, because the alternative is a recipient acting on numbers that quietly
+ignore the filter they were told was applied. Whether that means an error sheet or a note
+row is a phase 2 detail; that it must not be silent is not.
+
+**Failure isolation:** one chart failing must not lose the whole workbook. A failed chart
+yields a sheet carrying the error text, plus a warning appended to `self._filter_warnings` —
+the mechanism already exists for filter warnings and already surfaces in the execution log.
 
 ### 5.4 Sheet naming
 
@@ -224,6 +287,22 @@ patch reversible and keeps upstream upgrades free of an AIMES-owned alembic revi
 `csv`/`pdf`/`screenshots`. Adding an `xlsx` field they do not know about means an XLSX report
 sent to Slack would deliver **a message with no file** — silent data loss, the worst failure
 mode we could pick.
+
+**The attachment filename must not contain spaces**, and preferably we should fix the
+header while we are here. `send_email_smtp` passes the name into `MIMEApplication(body,
+Content_Disposition=f"attachment; filename='{name}'", Name=name)`, which makes
+Content-Disposition a *parameter of Content-Type* instead of its own header. The spike showed
+the practical effect: identical bytes named `report.xlsx` arrive as an attachment, while
+`Superset users table.xlsx` arrives with the attachment invisible to the parser. Dashboard
+titles contain spaces essentially always, so a naive `f"{dashboard_title}.xlsx"` would ship
+broken mail.
+
+Two things follow. Slugify the filename (spaces to underscores, strip anything exotic) — that
+alone is enough for us. And emitting a real `Content-Disposition` header is a three-line fix
+in `utils/core.py` that would also repair the existing CSV and PDF report attachments, whose
+names have the same problem today; it is a good candidate to offer upstream. Note our
+recipients evidently cope with the current headers, so this is a latent defect rather than an
+active outage — do not let it expand phase 2's scope beyond the slugify.
 
 Decision: teach Slack and webhook to upload the workbook (both APIs accept arbitrary
 files; the Slack path needs `filetype="xlsx"`). Cheap, and it closes the hole. If that turns
@@ -302,26 +381,26 @@ turns out to be un-servable — but it would be a per-chart fallback, never the 
 
 | # | Risk | Severity | Handling |
 |---|---|---|---|
-| 1 | `chartsInScope` absent or unreliable | **high** — scoping is load-bearing | Spike task 1. Fallbacks in §5.3 |
-| 2 | Charts without saved `query_context` | **high** | The existing fallback (`_update_query_context`, `execute.py:561`) forces one by taking a screenshot — unusable for 15 charts. Measure the real proportion first; for the remainder, fail that sheet with a clear, actionable message ("open and re-save this chart") rather than a stack trace |
+| 1 | ~~`chartsInScope` absent or unreliable~~ **Closed by the spike, with the opposite answer:** it is present but stale | was **high** | Resolved: compute scope from `scope.rootPath`/`excluded` against `position_json`, never from the persisted cache (§5.3) |
+| 2 | Charts without saved `query_context` | **medium** (was high — 3/3 charts had one, incl. one saved under an earlier version) | The existing fallback (`_update_query_context`, `execute.py:561`) forces one by taking a screenshot — unusable for 15 charts. Measure the real proportion first; for the remainder, fail that sheet with a clear, actionable message ("open and re-save this chart") rather than a stack trace |
 | 3 | Server-side `extraFormData` translation diverges from frontend behaviour | medium | Keep §5.1 narrow; unit-test each key; verify against a manually filtered dashboard, comparing per-chart CSV download to the workbook sheet |
 | 4 | Exotic viz types return raw rather than displayed data | medium | Accept and document. `result_type=POST_PROCESSED` covers table/pivot correctly, which is the AIMES case. deck.gl/maps will give raw rows |
 | 5 | Cross-filters and per-dashboard chart customizations not applied | low | Out of scope. A scheduled report has explicitly chosen filters; interactive cross-filter state is not part of it. Note in user docs so it is not discovered as a "bug" |
 | 6 | Large dashboards → memory and Celery timeouts | medium | Charts are fetched sequentially and each DataFrame released after writing. Respect the existing working timeout; consider a configurable cap on rows per sheet before phase 1 ships |
 | 7 | `execute.py` rebase conflicts | medium | Confine the change to one new method plus one `elif`. Do not refactor the surrounding CSV/PDF branches, however tempting |
-| 8 | Filter on a column absent from a chart's dataset | medium | Follows from risk 1. Per-chart failure isolation (§5.3) turns this from "no report" into "one bad sheet" |
+| 8 | Filter on a column absent from a chart's dataset | **high** (raised — the spike showed it is silent, not loud) | The query succeeds with unfiltered data. Read `rejected_filters` from every payload and surface it; see §5.3 |
+| 9 | Attachment filename with a space breaks attachment parsing | medium | Slugify the filename; optionally fix the Content-Disposition header upstream. See §5.6 |
 
 ## 8. Phasing
 
-**Phase 0 — prerequisite (wrapper repo, hours).** Enable `ALERT_REPORTS_FILTER`, confirm the
-filter UI appears and that existing PDF/PNG reports honour the chosen filters. Independent
-value, no fork change.
+**Phase 0 — prerequisite (wrapper repo, hours). DONE.** `ALERT_REPORTS_FILTER` enabled in
+the wrapper, alongside a `mailcatcher` compose profile so report mail can be inspected
+locally. Still open: confirming by hand that existing PDF/PNG reports honour the chosen
+filters.
 
-**Phase 1 — spike, closes the open questions (0.5–1 day).** Against a real AIMES dashboard:
-does `chartsInScope` exist and is it correct? What share of charts have `query_context`? Does
-`ChartDataCommand` on a saved context plus one injected filter return what the dashboard
-shows? Output: a yes/no on the design and a decision on the §5.3 fallback. **This is the gate
-— do not start phase 2 until it passes.**
+**Phase 1 — spike. DONE, design approved.** Results in §10. All three questions answered;
+one answer inverted a design decision (scoping) and one uncovered a failure mode the design
+had assumed away (silently dropped filters).
 
 **Phase 2 — all charts, filters applied (2–3 days).** `XLSX` enum, `apply_extra_form_data`,
 `df_dict_to_excel`, execute branch, email attachment, other channels, tests. Ships useful on
@@ -332,7 +411,7 @@ its own: one email, one workbook, filters honoured, every chart included.
 **Phase 4 — optional, decide later.** Chart images in sheets. Explicitly *not* committed to
 here.
 
-Total for phases 1–3: **4–6 working days**, plus phase 0.
+Remaining for phases 2–3: **3–5 working days**.
 
 **Acceptance for phase 2:** a dashboard report with two table charts and one select filter
 and one time filter arrives as one email with one `.xlsx`, two correctly named sheets, row
@@ -358,6 +437,64 @@ with one good sheet and one error sheet, and a warning in the execution log.
 - **CI:** `aimes-checks.yml`'s backend job currently runs only
   `tests/unit_tests/reports/model_test.py`. It must be extended to the new test files, or
   this patch is untested in CI.
+
+## 10. Phase 1 spike — what was actually run
+
+Against the live local stack and dashboard 1 ("Superset users table": `Tab1` with charts 1
+and 2, `Tab2` with chart 3, one `filter_time` native filter globally scoped, time range
+`2026-08-19 : 2026-08-20`). Executed in-process inside the `superset_app` container under
+`override_user(admin)`.
+
+**Scope resolution**
+
+```
+chart ids on dashboard : [1, 2, 3]
+filter scope           : {'rootPath': ['ROOT_ID'], 'excluded': []}
+chartsInScope          : persisted=[1, 2]   computed=[1, 2, 3]   *** DIVERGE ***
+tabsInScope            : ['TAB-OHvTw3lGXIrJ0CGttTB-G']   (Tab1 only, of two tabs)
+```
+
+**In-process query with the filter injected** — note each chart's temporal column differs,
+and overriding the existing `TEMPORAL_RANGE` filter rather than appending one handles that
+for free:
+
+```
+chart 1 'Superset Users'      unfiltered  1 rows   filtered  1 rows   (last_login)
+chart 2 'report execution og' unfiltered 28 rows   filtered 21 rows   (scheduled_dttm)
+chart 3 'SQL metrics'         unfiltered  3 rows   filtered  0 rows   (created_on)
+```
+
+**`filters[]` branch** (the common AIMES case, a select filter):
+`state IN ['Success']` on chart 2 → 28 rows down to 22. Applied.
+
+**Silently dropped filter:** `no_such_column IN ['x']` on chart 2 → `status: success`,
+`error: None`, **28 rows** (i.e. unfiltered), column absent from the emitted SQL, and
+`rejected_filters: [{'reason': COL_NOT_IN_DATASOURCE, 'column': 'no_such_column'}]`.
+
+**Sheet naming** — the sanitiser proposed in §5.4, on deliberately hostile input:
+
+```
+'Revenue [EUR] / month: north region breakdown' -> 'Revenue  EUR    month  north re'
+'a:b*c?d'                                       -> 'a b c d'
+'a:b*c?d' (again)                               -> 'a b c d (2)'
+```
+
+**Workbook** — three sheets written with `pd.ExcelWriter(engine="xlsxwriter")` through
+`quote_formulas`, 7856 bytes, and read back with `pd.read_excel(sheet_name=None)` to prove it
+is a valid workbook rather than plausible bytes. The zero-row sheet came out with **no
+columns at all**, which is what produced the `colnames` fix in §5.1.
+
+**Delivery** — sent through Superset's own `send_email_smtp` to the mailcatcher profile with
+an explicit config dict (never the real SMTP host). Arrived. This is also where the
+space-in-filename finding came from: same bytes, `report.xlsx` listed as an attachment,
+`Superset users table.xlsx` not.
+
+**Not covered by this spike**, and still worth doing before phase 2 is called done: a census
+of `query_context` across all AIMES dashboards, and a like-for-like comparison of a workbook
+sheet against the same chart's own "Download as CSV" taken with the filter applied by hand in
+the browser.
+
+---
 
 ---
 
@@ -410,6 +547,15 @@ them.
 - `apply_extra_form_data()` must stay **narrow** — only the four keys
   `ReportSchedule._generate_native_filter()` can emit. It is not a general `extraFormData`
   interpreter and must not become one.
+- **Never read `chartsInScope` from `json_metadata`.** It is a client-side cache the frontend
+  recomputes on every render, and it was observed stale on a real dashboard. Scope comes from
+  `scope.rootPath`/`excluded` resolved against `position_json`. Reading the cache "because it
+  is right there" reintroduces reports that silently omit charts.
+- **Always inspect `rejected_filters` on every query payload.** A filter naming a column the
+  dataset lacks does not raise — the query succeeds with unfiltered data. Dropping this check
+  means delivering numbers that ignore the filter the recipient was told was applied.
+- **Slugify the attachment filename.** A space in it breaks attachment parsing, and dashboard
+  titles contain spaces almost always.
 - It must not mutate the input `QueryContext`; that object holds a live ORM reference.
 - **Per-chart failure isolation:** one chart failing yields an error *sheet*, never a lost
   workbook. Easy to refactor away by accident, and the resulting failure mode (a whole
