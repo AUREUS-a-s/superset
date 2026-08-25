@@ -189,6 +189,7 @@ rebase that drops one produces a report that looks fine and is wrong):
 **Commits:**
 ```
 ef2aa71bb3  feat(reports): deliver a dashboard as a multi-sheet xlsx
+1a9ee7cb14  feat(reports): let a report choose which charts go in the workbook
 ```
 
 **Verification after an upgrade:**
