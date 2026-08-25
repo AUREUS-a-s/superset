@@ -100,7 +100,7 @@ DST boundary, and confirm the pill text matches the applied filter.
 
 | | |
 |---|---|
-| **Status** | Active — phase 2 shipped (all charts); chart-selection UI outstanding |
+| **Status** | Active — shipped, including chart selection |
 | **Type** | Product feature (**frontend + backend**) |
 | **Conflict risk** | **medium** |
 | **Upstream status** | Not proposed upstream — see [discussion #32026](https://github.com/apache/superset/discussions/32026) |
@@ -139,8 +139,10 @@ of this.
 | `superset/reports/notifications/email.py` | +8 | Attaches the workbook |
 | `superset/reports/notifications/base.py` | +4 | `xlsx` and `xlsx_filename` on `NotificationContent` |
 | `superset/reports/notifications/slack.py`, `slackv2.py` | +4 each | Uploads the workbook |
-| `superset-frontend/src/features/alerts/AlertReportModal.tsx` | +11 / −3 | `XLSX` format option, offered for dashboards only. Also P1/P3's file |
-| `.github/workflows/aimes-checks.yml` | +7 / −1 | Backend job runs the new tests |
+| `superset-frontend/src/features/alerts/AlertReportModal.tsx` | +90 / −5 | `XLSX` format option (dashboards only) and the "Charts to include" picker. Also P1/P3's file |
+| `superset-frontend/src/features/alerts/AlertReportModal.test.tsx` | +60 | Additive coverage for the picker |
+| `superset-frontend/src/features/alerts/types.ts` | +3 | `charts` on `DashboardState` |
+| `.github/workflows/aimes-checks.yml` | +14 / −2 | Backend job runs the new tests; frontend job now tests `src/features/alerts`, which P3 had left uncovered |
 
 **Behaviour worth preserving across upgrades** (each of these was learned the hard way; a
 rebase that drops one produces a report that looks fine and is wrong):
@@ -177,6 +179,11 @@ rebase that drops one produces a report that looks fine and is wrong):
   dashboard shows.
 - Slack and webhook must keep their `xlsx` branches, or an XLSX report to those channels
   arrives as a message with no file.
+- **An empty chart selection means every chart**, stored as an absent `charts` key. That is
+  also the shape of every report created before the picker existed, which is what let this
+  ship without a migration. Inverting it would turn a cleared list into a report that fails.
+- **`onDashboardChange` must keep clearing the chart selection.** Ids from the previous
+  dashboard match nothing, so a stale selection exports an empty workbook.
 - `filter_singledate` (P3) reaches this path as a `time_range`; the two patches are coupled.
 
 **Commits:**

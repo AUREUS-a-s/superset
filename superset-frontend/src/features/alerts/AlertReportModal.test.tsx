@@ -190,6 +190,7 @@ const databaseEndpoint = 'glob:*/api/v1/alert/related/database?*';
 const dashboardEndpoint = 'glob:*/api/v1/alert/related/dashboard?*';
 const chartEndpoint = 'glob:*/api/v1/alert/related/chart?*';
 const tabsEndpoint = 'glob:*/api/v1/dashboard/1/tabs';
+const dashboardChartsEndpoint = 'glob:*/api/v1/dashboard/1/charts';
 
 fetchMock.get(ownersEndpoint, { result: [] });
 fetchMock.get(databaseEndpoint, { result: [] });
@@ -204,6 +205,16 @@ fetchMock.get(
     },
   },
   { name: tabsEndpoint },
+);
+fetchMock.get(
+  dashboardChartsEndpoint,
+  {
+    result: [
+      { id: 11, slice_name: 'Revenue table', form_data: { viz_type: 'table' } },
+      { id: 12, slice_name: 'Revenue trend', form_data: { viz_type: 'echarts_timeseries_line' } },
+    ],
+  },
+  { name: dashboardChartsEndpoint },
 );
 
 // Restore the default tabs route and remove any test-specific overrides.
@@ -1487,4 +1498,67 @@ test('tabs metadata overwrites seeded filter options', async () => {
   expect(
     within(selectContainer).queryByTitle('Country'),
   ).not.toBeInTheDocument();
+});
+
+// --------------- XLSX dashboard export (P4) ------------------
+
+const selectDashboardFormat = async (format: string, label: RegExp) => {
+  render(<AlertReportModal {...generateMockedProps(true, true, true)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  await screen.findByRole('combobox', { name: /select format/i });
+  await comboboxSelect(
+    screen.getByRole('combobox', { name: /select format/i }),
+    format,
+    () => screen.getAllByText(label)[0],
+  );
+};
+
+test('offers Excel as a dashboard report format', async () => {
+  render(<AlertReportModal {...generateMockedProps(true, true, true)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  const formatSelector = await screen.findByRole('combobox', {
+    name: /select format/i,
+  });
+  userEvent.click(formatSelector);
+  expect(await screen.findByText(/Send as Excel/i)).toBeInTheDocument();
+});
+
+test('shows the chart picker once Excel is selected, listing the dashboard charts', async () => {
+  await selectDashboardFormat('Excel', /Send as Excel/i);
+
+  expect(
+    await screen.findByRole('combobox', { name: /charts to include/i }),
+  ).toBeInTheDocument();
+
+  userEvent.click(screen.getByRole('combobox', { name: /charts to include/i }));
+  // the visualization type rides along, so the author can tell what a sheet holds
+  expect(await screen.findByText(/Revenue table \(table\)/)).toBeInTheDocument();
+  expect(
+    await screen.findByText(/Revenue trend \(echarts_timeseries_line\)/),
+  ).toBeInTheDocument();
+});
+
+test('hides the chart picker for screenshot formats', async () => {
+  await selectDashboardFormat('PNG', /Send as PNG/i);
+  expect(
+    screen.queryByRole('combobox', { name: /charts to include/i }),
+  ).not.toBeInTheDocument();
+});
+
+test('does not offer Excel for a chart report', async () => {
+  render(<AlertReportModal {...generateMockedProps(true, true, false)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  const formatSelector = await screen.findByRole('combobox', {
+    name: /select format/i,
+  });
+  userEvent.click(formatSelector);
+  await screen.findByText(/Send as PDF/i);
+  // a chart has no workbook path on the backend, so the option must not be offered
+  expect(screen.queryByText(/Send as Excel/i)).not.toBeInTheDocument();
 });

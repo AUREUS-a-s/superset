@@ -525,12 +525,20 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
     setIsScreenshot(reportFormat === 'PNG' || reportFormat === 'PDF');
   }, [reportFormat]);
 
+  // A dashboard delivered as a workbook is the only format where picking individual
+  // charts means anything - a screenshot is the whole dashboard by definition.
+  const isDashboardDataFormat =
+    contentType === ContentType.Dashboard && reportFormat === 'XLSX';
+
   // Dropdown options
   const [conditionNotNull, setConditionNotNull] = useState<boolean>(false);
   const [sourceOptions, setSourceOptions] = useState<MetaObject[]>([]);
   const [dashboardOptions, setDashboardOptions] = useState<MetaObject[]>([]);
   const [chartOptions, setChartOptions] = useState<MetaObject[]>([]);
   const [tabOptions, setTabOptions] = useState<TabNode[]>([]);
+  const [dashboardChartOptions, setDashboardChartOptions] = useState<
+    { value: number; label: string }[]
+  >([]);
   const [nativeFilterOptions, setNativeFilterOptions] = useState<
     {
       value: string;
@@ -832,6 +840,21 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
     settings.splice(index, 1);
     setNotificationSettings(settings);
     setNotificationAddState('active');
+  };
+
+  const updateSelectedChartsState = (value?: number[]) => {
+    setCurrentAlert(currentAlertData => {
+      const dashboardState = currentAlertData?.extra?.dashboard;
+      return {
+        ...currentAlertData,
+        extra: {
+          dashboard: {
+            ...dashboardState,
+            charts: value,
+          },
+        },
+      };
+    });
   };
 
   const updateAnchorState = (value: any) => {
@@ -1169,6 +1192,34 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
     addDangerToast,
   ]);
 
+  useEffect(() => {
+    if (!isDashboardDataFormat || !dashboard?.value) {
+      return;
+    }
+    SupersetClient.get({
+      endpoint: `/api/v1/dashboard/${dashboard.value}/charts`,
+    })
+      .then(response => {
+        setDashboardChartOptions(
+          (response.json.result || [])
+            .filter((chart: any) => chart.id)
+            .map((chart: any) => ({
+              value: chart.id,
+              // The visualization type is worth showing: every chart is exported as
+              // its data table, so it tells the author what a sheet will contain.
+              label: chart.form_data?.viz_type
+                ? `${chart.slice_name} (${chart.form_data.viz_type})`
+                : chart.slice_name,
+            })),
+        );
+      })
+      .catch(() => {
+        addDangerToast(
+          t('There was an error retrieving the dashboard charts.'),
+        );
+      });
+  }, [isDashboardDataFormat, dashboard, addDangerToast]);
+
   const databaseLabel = currentAlert?.database && !currentAlert.database.label;
   useEffect(() => {
     // Find source if current alert has one set
@@ -1396,6 +1447,10 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
         },
       ]);
     }
+    // Chart ids are meaningless against a different dashboard; keeping them would
+    // silently export nothing, since none of them would match.
+    setDashboardChartOptions([]);
+    updateSelectedChartsState(undefined);
   };
 
   const onChartChange = (chart: SelectValue) => {
@@ -2427,6 +2482,39 @@ const AlertReportModal: FunctionComponent<AlertReportModalProps> = ({
                       </>
                     )}
                   </StyledInputContainer>
+                  {isDashboardDataFormat && (
+                    <StyledInputContainer>
+                      <>
+                        <div className="control-label">
+                          {t('Charts to include')}
+                          <InfoTooltip
+                            tooltip={t(
+                              'One sheet per chart, in the order the dashboard lays ' +
+                                'them out. Leave empty to include every chart. ' +
+                                'Graphical charts are exported as their underlying ' +
+                                'data table.',
+                            )}
+                          />
+                        </div>
+                        <Select
+                          ariaLabel={t('Charts to include')}
+                          mode="multiple"
+                          allowClear
+                          disabled={dashboardChartOptions.length === 0}
+                          options={dashboardChartOptions}
+                          value={currentAlert?.extra?.dashboard?.charts}
+                          onChange={value =>
+                            updateSelectedChartsState(
+                              (value as number[])?.length
+                                ? (value as number[])
+                                : undefined,
+                            )
+                          }
+                          placeholder={t('All charts')}
+                        />
+                      </>
+                    </StyledInputContainer>
+                  )}
                   {tabsEnabled && contentType === ContentType.Dashboard && (
                     <StyledInputContainer>
                       <>

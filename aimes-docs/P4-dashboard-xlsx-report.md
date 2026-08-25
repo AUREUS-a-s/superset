@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Phase 2 shipped** — all charts, filters applied. Phase 3 (chart-selection UI) outstanding |
+| **Status** | **Complete** — phases 0–3 shipped. Phase 4 (chart images) not committed to |
 | **Target patch id** | P4 — now in the `PATCHES.md` inventory |
 | **Upstream baseline** | 6.1.0 |
 | **Type** | Product feature (backend + frontend) |
@@ -453,13 +453,34 @@ two charts in scope and correctly *not* applied to the excluded one, and the zer
 keeping its nine column headers. 49 new unit tests, 68 passing in total across the touched
 backend suites, 44 passing in the frontend alerts suite.
 
-**Phase 3 — chart selection UI (1–2 days).** The multi-select only; the backend side of
-`extra["dashboard"]["charts"]` shipped with phase 2 and is covered by tests.
+**Phase 3 — chart selection UI. DONE.** A "Charts to include" multi-select appears in the
+report modal only when a dashboard is being delivered as XLSX — the one format where picking
+individual charts means anything, since a screenshot is the whole dashboard by definition.
+Options come from `GET /api/v1/dashboard/<id>/charts` and are labelled
+`<name> (<viz_type>)`: every chart is exported as its data table, so the visualization type
+is what tells the author what a sheet will actually contain.
 
-**Phase 4 — optional, decide later.** Chart images in sheets. Explicitly *not* committed to
-here.
+Two decisions worth recording:
 
-Remaining: **phase 3, 1–2 working days.**
+- **An empty selection means every chart, not none.** It is stored as an absent `charts` key,
+  which is also what a report created before this feature has, so nothing needed migrating.
+  The risk is a user clearing the list expecting an empty workbook and getting a full one;
+  the placeholder reads "All charts" and the tooltip says so explicitly. The alternative —
+  empty meaning none — would deliver a workbook with no sheets, which the backend refuses,
+  turning a mis-click into a failed report.
+- **Changing the dashboard clears the selection.** Chart ids do not carry across dashboards,
+  so a stale selection would match nothing and export nothing. `onDashboardChange` resets
+  both the options and the stored value.
+
+Verified end to end: a report with `charts: [1, 3]` on the three-chart dashboard delivered a
+workbook containing exactly `Report info`, `Superset Users` and `SQL metrics` — the excluded
+chart absent, layout order preserved.
+
+**Phase 4 — optional, still not committed to.** Chart images in sheets. It needs a browser in
+the worker and roughly doubles runtime, and the data table has so far been what recipients
+actually wanted.
+
+All planned phases are shipped.
 
 **Process note.** The dashboard owner's habit of opening the dashboard in the UI and
 checking it before relying on a report is the right acceptance gate for phase 2, and the

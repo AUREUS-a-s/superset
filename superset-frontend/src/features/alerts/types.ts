@@ -96,6 +96,9 @@ export type DashboardState = {
   dataMask?: object;
   anchor?: string;
   nativeFilters?: Array<ExtraNativeFilter>;
+  // Charts to include in a data export (XLSX). Absent or empty means every chart, so
+  // reports created before chart selection existed keep working unchanged.
+  charts?: Array<number>;
 };
 
 export type ExtraNativeFilter = {
