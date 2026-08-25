@@ -148,3 +148,35 @@ finds every site — and guard each read with `filter.targets?.[0]`. Additionall
 time-filter early return in `addNativeFilterOptions` above the reads. That is the shape of
 our P5, and it is small, self-contained and free of AIMES concepts: a good upstream PR.
 
+---
+
+## U4 — an unsupported format/content pair delivers an empty report, and logs Success
+
+**Status:** not reported upstream · **Affects:** 6.1.0 · **Severity for us:** none once P4's
+guard is in, but the shape survives for `CSV`
+
+**Symptom.** `_get_notification_content` dispatches on `report_format` with each data branch
+also requiring a matching content type — `CSV` requires a chart, and (after P4) `XLSX`
+requires a dashboard. A pair that matches no branch produces neither an attachment nor an
+`error_text`, so the report **completes, logs `Success`, and emails a link with no data.**
+
+Reproduced for chart + `XLSX` before we guarded it: the schedule logged
+`['Working', 'Success']` and the delivered mail had no attachment at all. The same holds
+upstream for dashboard + `CSV`, which is reachable through the API today.
+
+**Why it is reachable.** `report_format` is validated with `validate.OneOf` over the whole
+enum, independently of whether a chart or a dashboard is attached, so the API accepts any
+combination. The UI narrows the options per content type, which is why it is not seen in
+normal use.
+
+**What a fix would look like.** Either validate the pair when the schedule is created or
+updated — what P4 does for `XLSX` in
+`BaseReportScheduleCommand._validate_report_format` — or set `error_text` in the dispatch
+when no branch matched, so an unsupported pair fails loudly at run time instead of
+delivering nothing.
+
+**How we work around it.** We guard only the combination we introduced. Rejecting
+dashboard + `CSV` as well would be the more complete fix, but it would start failing
+schedules that exist today and currently "work" by silently sending nothing — a change of
+behaviour we should make deliberately, not as a side effect of this patch.
+

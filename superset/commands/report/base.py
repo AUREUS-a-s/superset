@@ -31,10 +31,15 @@ from superset.commands.report.exceptions import (
     ReportScheduleEitherChartOrDashboardError,
     ReportScheduleFrequencyNotAllowed,
     ReportScheduleOnlyChartOrDashboardError,
+    ReportScheduleXlsxDashboardOnlyError,
 )
 from superset.daos.chart import ChartDAO
 from superset.daos.dashboard import DashboardDAO
-from superset.reports.models import ReportCreationMethod, ReportScheduleType
+from superset.reports.models import (
+    ReportCreationMethod,
+    ReportDataFormat,
+    ReportScheduleType,
+)
 from superset.reports.types import ReportScheduleExtra
 from superset.utils import json
 
@@ -82,6 +87,31 @@ class BaseReportScheduleCommand(BaseCommand):
             self._properties["dashboard"] = dashboard
         elif not update:
             exceptions.append(ReportScheduleEitherChartOrDashboardError())
+
+    def _validate_report_format(self, exceptions: list[ValidationError]) -> None:
+        """
+        Reject the Excel format on anything but a dashboard report.
+
+        A chart report accepted with report_format=XLSX would deliver an email with a
+        link and no attachment: `_get_notification_content` has no branch for that
+        combination, so it produces neither data nor an error - the report logs Success.
+        The UI does not offer the option, but the API accepts any member of the enum,
+        and a silent empty report is the kind of failure nobody notices.
+        """
+        model = getattr(self, "_model", None)
+
+        # A PUT may omit any of these; fall back to the stored model, and distinguish
+        # "not supplied" from "explicitly cleared".
+        def supplied_or_stored(field: str) -> Any:
+            if field in self._properties:
+                return self._properties[field]
+            return getattr(model, field, None)
+
+        if supplied_or_stored("report_format") != ReportDataFormat.XLSX:
+            return
+
+        if supplied_or_stored("chart") or not supplied_or_stored("dashboard"):
+            exceptions.append(ReportScheduleXlsxDashboardOnlyError())
 
     def _validate_report_extra(self, exceptions: list[ValidationError]) -> None:
         extra: Optional[ReportScheduleExtra] = self._properties.get("extra")

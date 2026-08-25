@@ -358,3 +358,81 @@ def test_dashboard_info_frame_records_the_filter_state():
     assert rows["Filter: Period"] == "2026-01-01 : 2026-01-02"
     assert rows["Filter: region"] == "North, South"
     assert rows["Warning"] == "something was rejected"
+
+
+# ------------------------------------------------------ format/content validation
+
+
+def base_command(properties, model=None):
+    """A bare command instance; only the validator under test is exercised."""
+    from superset.commands.report.base import BaseReportScheduleCommand
+
+    command = BaseReportScheduleCommand()
+    command._properties = properties  # pylint: disable=protected-access
+    if model is not None:
+        command._model = model  # pylint: disable=protected-access
+    return command
+
+
+def test_xlsx_is_rejected_for_a_chart_report():
+    """
+    _get_notification_content has no branch for chart + XLSX, so it would produce
+    neither an attachment nor an error - an email with a link and no data.
+    """
+    exceptions: list = []
+    base_command(
+        {"report_format": "XLSX", "chart": SimpleNamespace(id=1), "dashboard": None}
+    )._validate_report_format(exceptions)
+    assert len(exceptions) == 1
+    assert "dashboard reports" in str(exceptions[0].messages)
+
+
+def test_xlsx_is_rejected_when_neither_chart_nor_dashboard_is_given():
+    exceptions: list = []
+    base_command({"report_format": "XLSX"})._validate_report_format(exceptions)
+    assert len(exceptions) == 1
+
+
+def test_xlsx_is_accepted_for_a_dashboard_report():
+    exceptions: list = []
+    base_command(
+        {"report_format": "XLSX", "dashboard": SimpleNamespace(id=1)}
+    )._validate_report_format(exceptions)
+    assert exceptions == []
+
+
+def test_other_formats_are_untouched():
+    """The guard must not start rejecting the formats that already worked."""
+    for report_format in ("PNG", "PDF", "CSV", "TEXT"):
+        exceptions: list = []
+        base_command(
+            {"report_format": report_format, "chart": SimpleNamespace(id=1)}
+        )._validate_report_format(exceptions)
+        assert exceptions == [], report_format
+
+
+def test_xlsx_validation_falls_back_to_the_stored_report_on_update():
+    """
+    A PUT that changes only the format carries no dashboard in the payload, so the
+    check has to consult the stored model or it would reject a valid edit.
+    """
+    exceptions: list = []
+    base_command(
+        {"report_format": "XLSX"},
+        model=SimpleNamespace(
+            report_format="PNG", chart=None, dashboard=SimpleNamespace(id=1)
+        ),
+    )._validate_report_format(exceptions)
+    assert exceptions == []
+
+
+def test_xlsx_validation_uses_the_payload_over_the_stored_report():
+    """Switching a stored dashboard report to a chart must be caught, not inherited."""
+    exceptions: list = []
+    base_command(
+        {"chart": SimpleNamespace(id=9), "dashboard": None},
+        model=SimpleNamespace(
+            report_format="XLSX", chart=None, dashboard=SimpleNamespace(id=1)
+        ),
+    )._validate_report_format(exceptions)
+    assert len(exceptions) == 1

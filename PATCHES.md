@@ -135,7 +135,9 @@ of this.
 | `superset/reports/models.py` | +51 | `XLSX` enum member and `get_native_filters_extra_form_data()`. Also P3's file |
 | `superset/utils/excel.py` | +22 | Additive `df_dict_to_excel()`; `df_to_excel` untouched |
 | `superset/reports/notifications/webhook.py` | +12 | Uploads the workbook |
-| `superset/commands/report/exceptions.py` | +9 | `ReportScheduleXlsxFailedError` / `…Timeout` |
+| `superset/commands/report/exceptions.py` | +20 | `ReportScheduleXlsxFailedError` / `…Timeout`, `ReportScheduleXlsxDashboardOnlyError` |
+| `superset/commands/report/base.py` | +28 | `_validate_report_format` — rejects `XLSX` on anything but a dashboard |
+| `superset/commands/report/create.py`, `update.py` | +1 each | Call the new validator |
 | `superset/reports/notifications/email.py` | +8 | Attaches the workbook |
 | `superset/reports/notifications/base.py` | +4 | `xlsx` and `xlsx_filename` on `NotificationContent` |
 | `superset/reports/notifications/slack.py`, `slackv2.py` | +4 each | Uploads the workbook |
@@ -179,6 +181,10 @@ rebase that drops one produces a report that looks fine and is wrong):
   dashboard shows.
 - Slack and webhook must keep their `xlsx` branches, or an XLSX report to those channels
   arrives as a message with no file.
+- **Keep `_validate_report_format` wired into both create and update.** `XLSX` on a chart
+  report matches no branch in `_get_notification_content`, which means no attachment *and*
+  no error: the report logs `Success` and mails a link with no data. Verified by
+  reproduction before the guard existed. The UI cannot produce the combination; the API can.
 - **An empty chart selection means every chart**, stored as an absent `charts` key. That is
   also the shape of every report created before the picker existed, which is what let this
   ship without a migration. Inverting it would turn a cleared list into a report that fails.
