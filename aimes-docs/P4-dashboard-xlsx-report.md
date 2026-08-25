@@ -143,6 +143,15 @@ tabs, three table charts, one `filter_time` native filter). Numbers in §10.
   safeguard: a scheduled report fires unattended, possibly months later, and possibly after
   somebody else adds a chart from Explore. It would pass the manual check and fail in
   production — intermittent wrongness, which is harder to catch than the consistent kind.
+- **Deleting and recreating the filter does not repair the field either — it removes it.** The
+  filter was recreated with a deliberately non-trivial scope (`rootPath` listing both tabs,
+  `excluded: [2]`). The dashboard now renders the way its author expects, and
+  `chartsInScope`/`tabsInScope` are **absent from the persisted JSON altogether**. That is the
+  worst of the three states: read naively, a missing value means "no charts in scope", so an
+  implementation trusting it would filter nothing rather than filter wrongly. Across the three
+  observed states the field was stale, then stale, then missing — never correct. The Python
+  port handled the new scope correctly, returning `[1, 3]` and skipping chart 2.
+  Tracked as U1 in [`upstream-candidates.md`](upstream-candidates.md).
 - **Charts have `query_context` saved:** all three did, including one last saved in February
   under an earlier version. A wider census is still worth doing before we lean on it (§7
   risk 2), but it is not the blocker it might have been.
@@ -312,6 +321,8 @@ the practical effect: identical bytes named `report.xlsx` arrive as an attachmen
 `Superset users table.xlsx` arrives with the attachment invisible to the parser. Dashboard
 titles contain spaces essentially always, so a naive `f"{dashboard_title}.xlsx"` would ship
 broken mail.
+
+Tracked as U2 in [`upstream-candidates.md`](upstream-candidates.md).
 
 Two things follow. Slugify the filename (spaces to underscores, strip anything exotic) — that
 alone is enough for us. And emitting a real `Content-Disposition` header is a three-line fix
@@ -509,6 +520,19 @@ columns at all**, which is what produced the `colnames` fix in §5.1.
 an explicit config dict (never the real SMTP host). Arrived. This is also where the
 space-in-filename finding came from: same bytes, `report.xlsx` listed as an attachment,
 `Superset users table.xlsx` not.
+
+**Second run, after the filter was deleted and recreated** with a non-trivial scope — the
+ported scope function on input it had not seen before:
+
+```
+filter scope  : {'rootPath': ['TAB-OHvTw3lGXIrJ0CGttTB-G',
+                              'TAB-k7HnNA0GXDe1-zHLTStO1'], 'excluded': [2]}
+chartsInScope : persisted=<absent>   computed=[1, 3]
+
+chart 1 'Superset Users'       filtered      1 rows
+chart 2 'report execution og'  out of scope, skipped
+chart 3 'SQL metrics'          filtered      0 rows
+```
 
 **Not covered by this spike**, and still worth doing before phase 2 is called done: a census
 of `query_context` across all AIMES dashboards, and a like-for-like comparison of a workbook

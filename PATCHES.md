@@ -207,6 +207,15 @@ commit.
 |---|---|---|
 | [`aimes-docs/P4-dashboard-xlsx-report.md`](aimes-docs/P4-dashboard-xlsx-report.md) — dashboard as a multi-sheet XLSX email report | P4 | Design approved by spike; implementation not started |
 
+### Upstream defects we chose not to patch
+
+Problems we found in Superset itself and decided to work around rather than carry a patch
+for. Recorded so the reasoning survives, and so an upstream upgrade can be checked against
+them: a fix upstream means a workaround here can go.
+
+[`aimes-docs/upstream-candidates.md`](aimes-docs/upstream-candidates.md) — currently the
+native-filter scope cache (U1) and email attachment Content-Disposition (U2).
+
 ---
 
 ## Retired patches
