@@ -508,9 +508,119 @@ with one good sheet and one error sheet, and a warning in the execution log.
   both).
 - **Regression:** existing PNG/PDF/CSV/TEXT reports unaffected — the new code is reachable
   only via `report_format == XLSX`.
-- **CI:** `aimes-checks.yml`'s backend job currently runs only
-  `tests/unit_tests/reports/model_test.py`. It must be extended to the new test files, or
-  this patch is untested in CI.
+- **CI:** `aimes-checks.yml`'s backend job ran only
+  `tests/unit_tests/reports/model_test.py`; it now also runs the new backend suites, and the
+  frontend job runs `src/features/alerts`, which P3 had left uncovered.
+
+### 9.1 What automated tests actually cover, and what they do not
+
+Stated plainly, because "49 unit tests" reads as more assurance than it is. The unit suites
+cover pure logic — scope resolution, filter application, sheet naming, workbook assembly,
+failure isolation, format validation — with `ChartDataCommand` mocked. Everything below the
+mock has been exercised exactly once, by hand, in one configuration: a dashboard report,
+delivered by **email**, filtered by a single **`filter_time`** native filter.
+
+That is the honest boundary. §9.2 is the list of things on the other side of it.
+
+### 9.2 Staging test plan
+
+Ordered by what would hurt most if it were wrong. Each item says what to do and what a pass
+looks like, because "we clicked around" is not a result.
+
+**A. Fidelity — does the workbook match the dashboard?**
+
+The single most valuable test, and the one no unit test can perform: it is the only check on
+whether the server-side reimplementation of the frontend's filter merge (§5.1) agrees with
+what a dashboard actually shows.
+
+1. Open a dashboard, set its filters by hand in the browser.
+2. For each chart, use its own **Download → Export to .CSV**.
+3. Schedule an XLSX report with the same filter values and run it.
+4. Compare row counts and column sets, sheet by sheet.
+
+*Pass:* every sheet matches its CSV. *Investigate:* any difference in row count, column set
+or ordering — that is a filter or post-processing divergence, not a cosmetic issue.
+
+**B. Filter types beyond `filter_time`**
+
+Only `filter_time` has been run end to end. Cover one report each for:
+
+- **`filter_singledate`** — our own P3 filter, and per the AIMES usage notes the most likely
+  one in practice, since this reporting is predominantly day-at-a-time. It reaches the
+  workbook as a `time_range`, the same path as `filter_time`, but it has never been run.
+- **`filter_select`** — verified in the spike with a hand-built payload, never through a
+  real report schedule.
+- **`filter_range`** — emits a `>=`/`<=` pair rather than a single filter; never run.
+- **Two filters on one chart** — exercises `merge_extra_form_data`, unit-tested only.
+
+*Pass:* the "Report info" sheet lists the filter values used, and the data reflects them.
+
+**C. Failure paths, deliberately provoked**
+
+These are the behaviours that protect a recipient from acting on wrong numbers, and each is
+unit-tested but has never been seen in a delivered workbook.
+
+- **Rejected filter:** point a filter at a column one chart's dataset does not have. *Pass:*
+  that sheet still arrives, the "Report info" sheet carries a `Warning` row naming the
+  column, and the execution log shows it. *Fail (serious):* the sheet arrives looking
+  filtered, with nothing saying it is not.
+- **Chart without `query_context`:** find or make one. *Pass:* an error sheet naming the
+  chart and telling the reader to open and re-save it; every other sheet intact.
+- **Chart outside a filter's scope:** exclude one chart from a filter. *Pass:* that sheet is
+  **unfiltered** while the others are filtered. If every sheet is filtered identically,
+  scope resolution has regressed to reading the persisted cache (§4).
+
+**D. Delivery channels other than email**
+
+`slack.py`, `slackv2.py` and `webhook.py` each gained an `xlsx` branch. None has ever run.
+They are four to twelve lines apiece and structurally identical to the email path, but
+untested is untested — and the failure mode if a branch is wrong is a message with no file
+attached, which reads as a delivered report.
+
+*Pass:* the workbook arrives as a file on each channel in use. Channels AIMES does not use
+can be skipped, deliberately and in writing, rather than assumed.
+
+**E. Alerts, not just reports**
+
+Everything so far has been a Report. An **Alert** on a dashboard with `report_format=XLSX`
+takes the same branch, gated by `ALERTS_ATTACH_REPORTS`. Untested.
+
+**F. Scale**
+
+Never measured. Charts are queried sequentially and each frame is released after writing,
+but nothing bounds the total.
+
+1. Run against the largest real dashboard available.
+2. Record wall-clock time, worker RSS, and the workbook size.
+
+*Pass:* comfortably inside `working_timeout` with headroom. *Act on:* anything close to the
+timeout, or memory that scales with the number of charts rather than the largest one — the
+design flagged a configurable row cap per sheet as the mitigation (§7 risk 6).
+
+**G. Census: do our charts carry `query_context`?**
+
+The one open question from the phase 1 spike. All three charts on the test dashboard had it,
+including one last saved under an earlier version, but three charts is not a sample.
+
+```sql
+SELECT (query_context IS NOT NULL AND query_context <> '') AS has_qc, count(*)
+FROM slices GROUP BY 1;
+```
+
+*Pass:* a negligible tail. *Act on:* a large tail means the "open and re-save the chart"
+remedy does not scale and phase 2 needs a fallback before wide use.
+
+**H. Excel compatibility**
+
+Open a delivered workbook in **Excel and LibreOffice**. *Pass:* both open it without a repair
+prompt, and a cell whose value begins with `=` shows as text, not a live formula
+(`quote_formulas`).
+
+### 9.3 Explicitly out of scope — tell whoever tests this
+
+Not defects, and worth saying before someone files them as such: cross-filters and
+per-dashboard chart customizations are not applied; graphical charts arrive as their data
+table and not as images; there is no whole-dashboard CSV. See §2.
 
 ## 10. Phase 1 spike — what was actually run
 

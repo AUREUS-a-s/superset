@@ -209,6 +209,9 @@ it, and confirm each sheet's row count matches that chart's own "Download as CSV
 the same filters applied by hand. A chart outside the scope must come back **unfiltered** —
 if every sheet is filtered identically, scope resolution has regressed.
 
+The full manual plan, including the paths the unit tests deliberately do not reach, is §9.2
+of the design document. §9.1 states plainly where automated coverage stops.
+
 ---
 
 ### P5 — Guard dataset-less native filters in the report modal
