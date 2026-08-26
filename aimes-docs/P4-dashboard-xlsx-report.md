@@ -56,6 +56,9 @@ dashboard's filter state applied — and the ability to choose which charts go i
   different column sets. XLSX with one sheet per chart is the honest shape for this data.
 - Cross-filters and per-dashboard chart customizations (see §7).
 - Slack / webhook delivery of the workbook (see §5.6).
+- **Number formatting.** A chart's per-column `d3NumberFormat` is deliberately not
+  applied. See §11 for the reasoning and for what a future implementation would have to
+  do.
 
 ## 3. Where 6.1.0 stops today
 
@@ -305,6 +308,42 @@ a "the file won't open" bug report.
 **Zero schema change is a deliberate design constraint**, not a happy accident: it keeps the
 patch reversible and keeps upstream upgrades free of an AIMES-owned alembic revision.
 
+### 5.10 Matching the chart's presentation (phase 5)
+
+Every other data export in the product — the per-chart CSV report, the dashboard's own
+"Export to Excel" — goes out through `ChartDataRestApi._send_chart_response`, which calls
+`apply_client_processing` whenever `result_type == POST_PROCESSED`
+(`superset/charts/data/api.py:403`). That function is what reconciles queried data with what
+the chart displays. Querying in process bypasses it entirely, which produced three
+divergences from the dashboard:
+
+| What the presentation layer does | Before phase 5 |
+|---|---|
+| renames columns to the dataset's verbose labels | raw column names in every sheet |
+| for `pivot_table_v2`, performs **the pivot itself** | a pivot chart arrived as flat rows |
+| applies `column_config.d3NumberFormat` | not applied — and deliberately still not, see §11 |
+
+`_match_chart_presentation` takes the first two. It reuses upstream's own
+`post_processors` registry rather than reimplementing them, so a pivot is pivoted by the
+same code the API uses.
+
+Two details are ours rather than upstream's:
+
+- **`column_config` is stripped** from the form data handed to the post-processor. That is
+  what suppresses the number formatting; `pivot_table_v2` never reads the key, so nothing
+  else changes.
+- **The pivot's row grouping is named and promoted to columns.** `pivot_df` returns a
+  MultiIndex whose names are dropped (`names=[None]`), so a bare `reset_index()` labels the
+  column `level_0`; the names are restored from the chart's own `groupbyRows`. The grouping
+  then becomes real columns rather than a spreadsheet index, which survives the
+  `index=False` write the other sheets use and is more usable in Excel. Tuple column labels
+  are flattened the same way the API flattens them.
+
+**A presentation failure must not cost the sheet.** If a post-processor raises — a pivot
+chart missing `metrics`, say — the queried data is written instead, with a note. A chart that
+renders in the browser losing its sheet to an error would be a worse outcome than a sheet
+whose shape is less pretty.
+
 ### 5.6 Other notification channels
 
 `NotificationContent` is shared by email, Slack and webhook. Slack
@@ -411,7 +450,7 @@ turns out to be un-servable — but it would be a per-chart fallback, never the 
 | 1 | ~~`chartsInScope` absent or unreliable~~ **Closed by the spike, with the opposite answer:** it is present but stale | was **high** | Resolved: compute scope from `scope.rootPath`/`excluded` against `position_json`, never from the persisted cache (§5.3) |
 | 2 | Charts without saved `query_context` | **medium** (was high — 3/3 charts had one, incl. one saved under an earlier version) | The existing fallback (`_update_query_context`, `execute.py:561`) forces one by taking a screenshot — unusable for 15 charts. Measure the real proportion first; for the remainder, fail that sheet with a clear, actionable message ("open and re-save this chart") rather than a stack trace |
 | 3 | Server-side `extraFormData` translation diverges from frontend behaviour | medium | Keep §5.1 narrow; unit-test each key; verify against a manually filtered dashboard, comparing per-chart CSV download to the workbook sheet |
-| 4 | Exotic viz types return raw rather than displayed data | medium | Accept and document. `result_type=POST_PROCESSED` covers table/pivot correctly, which is the AIMES case. deck.gl/maps will give raw rows |
+| 4 | Exotic viz types return raw rather than displayed data | medium | **This entry was wrong and is corrected by phase 5.** `result_type=POST_PROCESSED` does *not* cover pivot: the pivot happens in `apply_client_processing`, which the in-process path bypassed, so a pivot chart arrived as the flat rows it is built from. Phase 5 applies the presentation layer (§5.10). deck.gl/maps still give raw rows |
 | 5 | Cross-filters and per-dashboard chart customizations not applied | low | Out of scope. A scheduled report has explicitly chosen filters; interactive cross-filter state is not part of it. Note in user docs so it is not discovered as a "bug" |
 | 6 | Large dashboards → memory and Celery timeouts | medium | Charts are fetched sequentially and each DataFrame released after writing. Respect the existing working timeout; consider a configurable cap on rows per sheet before phase 1 ships |
 | 7 | `execute.py` rebase conflicts | medium | Confine the change to one new method plus one `elif`. Do not refactor the surrounding CSV/PDF branches, however tempting |
@@ -475,6 +514,12 @@ Two decisions worth recording:
 Verified end to end: a report with `charts: [1, 3]` on the three-chart dashboard delivered a
 workbook containing exactly `Report info`, `Superset Users` and `SQL metrics` — the excluded
 chart absent, layout order preserved.
+
+**Phase 5 — match the chart's presentation. DONE.** Every other data export in Superset
+passes through `apply_client_processing` on its way out of the chart data API; querying in
+process bypassed it, so the workbook disagreed with the dashboard in three ways. Phase 5
+adopts the presentation layer for column labels and for pivoting, and deliberately declines
+its number formatting (§11).
 
 **Phase 4 — optional, still not committed to.** Chart images in sheets. It needs a browser in
 the worker and roughly doubles runtime, and the data table has so far been what recipients
@@ -689,7 +734,19 @@ ORDER BY d.dashboard_title, s.slice_name;
 remedy does not scale and phase 2 needs a fallback before wide use. Either way the query
 doubles as the source of a test subject for C.
 
-**H. Excel compatibility**
+**H. Presentation matches the dashboard (phase 5)**
+
+- **Column headers.** On a dataset whose columns have verbose labels, the sheet headers must
+  show the labels, not the raw column names.
+- **Numbers stay numbers.** On a table chart with a per-column `d3NumberFormat` set, the
+  cell must hold the full value (`1234.5678`), not a formatted string (`'1,234.57'`) —
+  clicking the cell in Excel shows the real number and `SUM` works over the column. This is
+  a deliberate choice, not an oversight: see §11.
+- **Pivot charts.** If a pivot table chart ever lands on a reported dashboard, its sheet must
+  be **pivoted**, with the row grouping as a named column rather than `level_0`, and no
+  column header containing a tuple.
+
+**I. Excel compatibility**
 
 Open a delivered workbook in **Excel and LibreOffice**. *Pass:* both open it without a repair
 prompt, and a cell whose value begins with `=` shows as text, not a live formula
@@ -789,6 +846,53 @@ sheet against the same chart's own "Download as CSV" taken with the filter appli
 the browser.
 
 ---
+
+## 11. Deferred: number formatting
+
+**Status: deliberately not implemented. Revisit if the requirement changes.**
+
+A table chart can carry a per-column `d3NumberFormat` — rounding to two decimals, thousands
+separators, currency. The dashboard applies it, and so does every other Superset data export,
+because `apply_client_processing` runs `"{:" + spec + "}".format` over the column. The
+workbook does not.
+
+**Why we declined it.** Upstream's implementation replaces the number with a *string*:
+
+```
+raw           1234.5678   (float64)
+d3 ",.2f"  →  '1,234.57'  (object)     ← text, not a number
+d3 "$,.2f" →  1234.5678   (unchanged)  ← silently skipped: not a Python format spec
+d3 ".2s"   →  1234.5678   (unchanged)  ← same
+```
+
+In a workbook that is text: it cannot be summed or pivoted, and in a locale that uses a
+comma as the decimal separator `1,234.57` is not even readable as a number. More decisively,
+**rounding is not reversible.** A report that may later feed a calculation must carry the
+value it was given; a recipient can round a real number in Excel in two clicks, but cannot
+recover precision that was discarded before the mail was sent. Presentation is the
+recipient's to choose, precision is not.
+
+**What a future implementation should do instead.** Not string formatting. Keep the numeric
+value in the cell and set the column's **Excel number format**, so the spreadsheet displays
+the intended rounding while storing the full value — `xlsxwriter` supports this through
+`worksheet.set_column(first, last, width, cell_format)`. That needs a partial d3 → Excel
+translation, which is where the work is:
+
+| d3 | Excel |
+|---|---|
+| `.2f` | `0.00` |
+| `,.2f` | `#,##0.00` |
+| `,` | `#,##0` |
+| `.1%` | `0.0%` |
+| `$,.2f` | `"$"#,##0.00` |
+| `.2s` (SI prefix) | not expressible — leave the column unformatted |
+
+It also needs `df_dict_to_excel` to accept per-sheet, per-column formats, which today it does
+not. Estimate: one to two days with tests.
+
+**Do not "fix" this by adopting upstream's string formatting.** It would look like the
+feature but would take the calculable numbers away, which is the opposite of why a workbook
+was asked for in the first place.
 
 ---
 

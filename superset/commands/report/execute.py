@@ -24,6 +24,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from flask import current_app as app
 
 from superset import db, security_manager
+from superset.charts.client_processing import post_processors
 from superset.commands.base import BaseCommand
 from superset.commands.chart.data.get_data_command import ChartDataCommand
 from superset.commands.dashboard.permalink.create import CreateDashboardPermalinkCommand
@@ -76,7 +77,12 @@ from superset.reports.notifications.exceptions import (
 )
 from superset.tasks.utils import get_executor
 from superset.utils import json
-from superset.utils.core import HeaderDataType, override_user, recipients_string_to_list
+from superset.utils.core import (
+    get_column_names,
+    HeaderDataType,
+    override_user,
+    recipients_string_to_list,
+)
 from superset.utils.csv import get_chart_csv_data, get_chart_dataframe
 from superset.utils.decorators import logs_context, transaction
 from superset.utils.excel import df_dict_to_excel
@@ -633,7 +639,91 @@ class BaseReportState:
 
         # Built with colnames, not from the rows: an empty result would otherwise lose
         # its header row entirely and arrive as a blank sheet.
-        return pd.DataFrame(payload.get("data") or [], columns=payload.get("colnames"))
+        frame = pd.DataFrame(
+            payload.get("data") or [], columns=payload.get("colnames")
+        )
+        return self._match_chart_presentation(chart, frame, notes)
+
+    def _match_chart_presentation(
+        self, chart: Any, frame: pd.DataFrame, notes: list[str]
+    ) -> pd.DataFrame:
+        """
+        Shape the frame the way the chart presents it.
+
+        Every other data export in Superset reaches this through
+        `apply_client_processing`, which `_send_chart_response` calls on the way out of
+        the chart data API. This path queries in process and therefore bypasses it, so
+        without this the workbook would disagree with the dashboard: raw column names
+        instead of the dataset's labels, and - worse - a pivot table delivered as the
+        flat query output it is built from, because the pivot itself happens here rather
+        than in the query.
+
+        The one thing deliberately **not** taken from it is `column_config`, whose
+        `d3NumberFormat` replaces numbers with formatted strings. A workbook exists to
+        be calculated with, and a rounded string cannot be turned back into the value it
+        came from; the recipient can format a real number in Excel, but cannot recover
+        precision that was thrown away before it was sent.
+        """
+        form_data = json.loads(chart.params or "{}")
+        datasource = getattr(chart, "datasource", None)
+
+        if datasource:
+            # Labels, not raw column names - the header a dashboard reader recognises.
+            frame = frame.rename(columns=datasource.data.get("verbose_map") or {})
+
+        post_processor = post_processors.get(form_data.get("viz_type"))
+        if not post_processor:
+            return frame
+
+        # Dropping column_config is what suppresses the number formatting; the pivot
+        # processor does not read it, so nothing else changes.
+        presentation_form_data = {
+            key: value
+            for key, value in form_data.items()
+            if key != "column_config"
+        }
+        try:
+            frame = post_processor(frame, presentation_form_data, datasource)
+        except Exception as ex:  # pylint: disable=broad-except
+            # A chart that renders in the browser must not lose its sheet because we
+            # could not reproduce the presentation. Ship the queried data instead.
+            logger.warning(
+                "Could not apply %s presentation for chart %s: %s",
+                form_data.get("viz_type"),
+                chart.id,
+                ex,
+            )
+            notes.append(
+                f"{chart.slice_name}: could not be shaped the way the chart displays "
+                f"it ({ex}); the sheet holds the underlying query result"
+            )
+            return frame
+
+        # A pivot carries its row grouping in the index, and `pivot_df` returns that
+        # index with its names dropped - so a bare reset_index would label the column
+        # `level_0`. Restore the names from the chart's own row keys first.
+        row_keys = get_column_names(
+            presentation_form_data.get("groupbyRows"),
+            datasource.data.get("verbose_map") if datasource else None,
+        )
+        if row_keys and len(row_keys) == frame.index.nlevels:
+            frame.index = frame.index.set_names(row_keys)
+
+        # Promote the row grouping to real columns: more usable in a spreadsheet than a
+        # sheet index, and it survives the `index=False` write every other sheet uses.
+        if not isinstance(frame.index, pd.RangeIndex):
+            frame = frame.reset_index()
+
+        # Pivots also produce tuple (hierarchical) column labels, which no spreadsheet
+        # can hold. Flattened the same way the chart data API flattens them.
+        frame.columns = [
+            " ".join(str(part) for part in column).strip()
+            if isinstance(column, tuple)
+            else column
+            for column in frame.columns
+        ]
+
+        return frame
 
     def _filters_by_chart(
         self,

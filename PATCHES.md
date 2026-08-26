@@ -131,7 +131,7 @@ of this.
 
 | File | Churn | Note |
 |---|---|---|
-| `superset/commands/report/execute.py` | +268 / −0 | **The hotspot.** Six new methods plus one `elif` in `_get_notification_content`. Actively developed upstream |
+| `superset/commands/report/execute.py` | +345 / −0 | **The hotspot.** Seven new methods plus one `elif` in `_get_notification_content`. Actively developed upstream |
 | `superset/reports/models.py` | +51 | `XLSX` enum member and `get_native_filters_extra_form_data()`. Also P3's file |
 | `superset/utils/excel.py` | +22 | Additive `df_dict_to_excel()`; `df_to_excel` untouched |
 | `superset/reports/notifications/webhook.py` | +12 | Uploads the workbook |
@@ -162,6 +162,21 @@ rebase that drops one produces a report that looks fine and is wrong):
   dataset lacks does not raise — the query succeeds and returns *unfiltered* data. Dropping
   this check means delivering numbers that quietly ignore the filter the recipient was told
   was applied.
+- **Never apply `column_config.d3NumberFormat` to the workbook.** Upstream's presentation
+  layer turns the number into a formatted *string*; in a spreadsheet that cannot be summed,
+  is unreadable in comma-decimal locales, and — the reason it was declined — discards
+  precision irreversibly. A recipient can round a real number in Excel; they cannot recover
+  a value that was rounded before it was sent. `_match_chart_presentation` strips
+  `column_config` precisely to prevent this, and a test guards it. If the requirement ever
+  changes, the answer is Excel number formats over real values, not strings: design document
+  §11.
+- **Keep the pivot's row grouping named.** `pivot_df` returns a MultiIndex with
+  `names=[None]`, so a bare `reset_index()` produces a column called `level_0`; the names
+  come from the chart's `groupbyRows`. Without it a pivot sheet is delivered with an
+  unlabelled key column.
+- **A presentation failure must fall back to the queried data, not to an error sheet.** A
+  chart that renders in the browser must not lose its sheet because we could not reproduce
+  its shape.
 - **Build each frame with the payload's `colnames`**, not from the rows. `pd.DataFrame([])`
   has no columns, so an empty chart would arrive as a blank sheet with no header row and look
   like a broken export rather than an empty answer.
@@ -196,6 +211,9 @@ rebase that drops one produces a report that looks fine and is wrong):
 ```
 ef2aa71bb3  feat(reports): deliver a dashboard as a multi-sheet xlsx
 1a9ee7cb14  feat(reports): let a report choose which charts go in the workbook
+b787725a80  fix(reports): reject the Excel format on anything but a dashboard report
+74e585a4ea  feat(reports): log the workbook size alongside the generation time
+<sha>       feat(reports): shape each sheet the way its chart is displayed
 ```
 
 **Verification after an upgrade:**

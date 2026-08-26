@@ -63,12 +63,16 @@ POSITION = {
 FILTER_ID = "NATIVE_FILTER-abc"
 
 
-def fake_slice(chart_id, name, has_query_context=True):
+def fake_slice(chart_id, name, has_query_context=True, params=None):
     return SimpleNamespace(
         id=chart_id,
         slice_name=name,
         query_context="{}" if has_query_context else None,
         get_query_context=lambda: SimpleNamespace(queries=[]),
+        # Presentation matching reads both of these; a chart always has params, and a
+        # datasource-less one is the degenerate case.
+        params=params if params is not None else '{"viz_type": "table"}',
+        datasource=None,
     )
 
 
@@ -436,3 +440,114 @@ def test_xlsx_validation_uses_the_payload_over_the_stored_report():
         ),
     )._validate_report_format(exceptions)
     assert len(exceptions) == 1
+
+
+# ------------------------------------------------- matching the chart's presentation
+
+
+def slice_with(params, verbose_map=None):
+    """A slice whose params drive presentation, with an optional dataset verbose map."""
+    datasource = (
+        SimpleNamespace(data={"verbose_map": verbose_map}) if verbose_map else None
+    )
+    return SimpleNamespace(
+        id=7,
+        slice_name="Sales",
+        query_context="{}",
+        params=__import__("json").dumps(params),
+        datasource=datasource,
+    )
+
+
+def test_presentation_uses_the_datasets_verbose_labels():
+    """The header a dashboard reader recognises, not the raw column name."""
+    state = report_state(fake_dashboard([]))
+    frame = pd.DataFrame({"rev": [1], "reg": ["N"]})
+    out = state._match_chart_presentation(
+        slice_with({"viz_type": "table"}, {"rev": "Revenue", "reg": "Region"}),
+        frame,
+        [],
+    )
+    assert list(out.columns) == ["Revenue", "Region"]
+
+
+def test_presentation_leaves_numbers_numeric():
+    """
+    The deliberate omission: d3NumberFormat would turn 1234.5678 into '1,234.57'. A
+    workbook exists to be calculated with, and rounding cannot be undone by the
+    recipient - whereas formatting a real number in Excel can be done by anyone.
+    """
+    state = report_state(fake_dashboard([]))
+    frame = pd.DataFrame({"revenue": [1234.5678]})
+    out = state._match_chart_presentation(
+        slice_with(
+            {
+                "viz_type": "table",
+                "column_config": {"revenue": {"d3NumberFormat": ",.2f"}},
+            }
+        ),
+        frame,
+        [],
+    )
+    assert out["revenue"].tolist() == [1234.5678]
+    assert out["revenue"].dtype.kind == "f"
+
+
+def test_presentation_leaves_unknown_viz_types_alone():
+    state = report_state(fake_dashboard([]))
+    frame = pd.DataFrame({"a": [1]})
+    out = state._match_chart_presentation(
+        slice_with({"viz_type": "echarts_timeseries_line"}), frame, []
+    )
+    assert out.equals(frame)
+
+
+def test_presentation_pivots_a_pivot_table_and_flattens_its_columns():
+    """
+    The gap that matters most: pivoting happens in the presentation layer, not in the
+    query, so without this a pivot chart's sheet is the flat rows it is built from.
+    """
+    state = report_state(fake_dashboard([]))
+    frame = pd.DataFrame(
+        {
+            "region": ["N", "N", "S", "S"],
+            "quarter": ["Q1", "Q2", "Q1", "Q2"],
+            "revenue": [1, 2, 3, 4],
+        }
+    )
+    out = state._match_chart_presentation(
+        slice_with(
+            {
+                "viz_type": "pivot_table_v2",
+                "groupbyRows": ["region"],
+                "groupbyColumns": ["quarter"],
+                "metrics": ["revenue"],
+                "aggregateFunction": "Sum",
+            }
+        ),
+        frame,
+        [],
+    )
+    # one row per region rather than the four input rows
+    assert len(out) == 2
+    # the row grouping became a real column instead of a spreadsheet index
+    assert "region" in out.columns
+    # and no column is a tuple, which no spreadsheet can hold
+    assert not any(isinstance(column, tuple) for column in out.columns)
+
+
+def test_presentation_failure_keeps_the_data_and_notes_it():
+    """
+    A chart that renders in the browser must not lose its sheet because we could not
+    reproduce the presentation - the queried data beats an error sheet.
+    """
+    state = report_state(fake_dashboard([]))
+    frame = pd.DataFrame({"a": [1]})
+    notes: list = []
+    # pivot_table_v2 requires `metrics`; omitting it makes the post-processor raise
+    out = state._match_chart_presentation(
+        slice_with({"viz_type": "pivot_table_v2", "groupbyRows": ["a"]}), frame, notes
+    )
+    assert out.equals(frame)
+    assert len(notes) == 1
+    assert "underlying query result" in notes[0]
