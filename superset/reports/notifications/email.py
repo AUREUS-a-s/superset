@@ -192,6 +192,14 @@ class EmailNotification(BaseNotification):  # pylint: disable=too-few-public-met
         csv_data = None
         if self._content.csv:
             csv_data = {__("%(name)s.csv", name=self._name): self._content.csv}
+        elif self._content.xlsx:
+            # Rides along in `data`, which attaches arbitrary bytes under an arbitrary
+            # name. The filename is prepared by the caller rather than derived from
+            # `self._name` here: a space in it can make the attachment invisible to a
+            # receiving parser.
+            csv_data = {
+                self._content.xlsx_filename or "report.xlsx": self._content.xlsx
+            }
 
         pdf_data = None
         if self._content.pdf:

@@ -190,6 +190,7 @@ const databaseEndpoint = 'glob:*/api/v1/alert/related/database?*';
 const dashboardEndpoint = 'glob:*/api/v1/alert/related/dashboard?*';
 const chartEndpoint = 'glob:*/api/v1/alert/related/chart?*';
 const tabsEndpoint = 'glob:*/api/v1/dashboard/1/tabs';
+const dashboardChartsEndpoint = 'glob:*/api/v1/dashboard/1/charts';
 
 fetchMock.get(ownersEndpoint, { result: [] });
 fetchMock.get(databaseEndpoint, { result: [] });
@@ -204,6 +205,16 @@ fetchMock.get(
     },
   },
   { name: tabsEndpoint },
+);
+fetchMock.get(
+  dashboardChartsEndpoint,
+  {
+    result: [
+      { id: 11, slice_name: 'Revenue table', form_data: { viz_type: 'table' } },
+      { id: 12, slice_name: 'Revenue trend', form_data: { viz_type: 'echarts_timeseries_line' } },
+    ],
+  },
+  { name: dashboardChartsEndpoint },
 );
 
 // Restore the default tabs route and remove any test-specific overrides.
@@ -1487,4 +1498,183 @@ test('tabs metadata overwrites seeded filter options', async () => {
   expect(
     within(selectContainer).queryByTitle('Country'),
   ).not.toBeInTheDocument();
+});
+
+// --------------- XLSX dashboard export (P4) ------------------
+
+const selectDashboardFormat = async (format: string, label: RegExp) => {
+  render(<AlertReportModal {...generateMockedProps(true, true, true)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  await screen.findByRole('combobox', { name: /select format/i });
+  await comboboxSelect(
+    screen.getByRole('combobox', { name: /select format/i }),
+    format,
+    () => screen.getAllByText(label)[0],
+  );
+};
+
+test('offers Excel as a dashboard report format', async () => {
+  render(<AlertReportModal {...generateMockedProps(true, true, true)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  const formatSelector = await screen.findByRole('combobox', {
+    name: /select format/i,
+  });
+  userEvent.click(formatSelector);
+  expect(await screen.findByText(/Send as Excel/i)).toBeInTheDocument();
+});
+
+test('shows the chart picker once Excel is selected, listing the dashboard charts', async () => {
+  await selectDashboardFormat('Excel', /Send as Excel/i);
+
+  expect(
+    await screen.findByRole('combobox', { name: /charts to include/i }),
+  ).toBeInTheDocument();
+
+  userEvent.click(screen.getByRole('combobox', { name: /charts to include/i }));
+  // the visualization type rides along, so the author can tell what a sheet holds
+  expect(await screen.findByText(/Revenue table \(table\)/)).toBeInTheDocument();
+  expect(
+    await screen.findByText(/Revenue trend \(echarts_timeseries_line\)/),
+  ).toBeInTheDocument();
+});
+
+test('hides the chart picker for screenshot formats', async () => {
+  await selectDashboardFormat('PNG', /Send as PNG/i);
+  expect(
+    screen.queryByRole('combobox', { name: /charts to include/i }),
+  ).not.toBeInTheDocument();
+});
+
+test('does not offer Excel for a chart report', async () => {
+  render(<AlertReportModal {...generateMockedProps(true, true, false)} />, {
+    useRedux: true,
+  });
+  userEvent.click(screen.getByTestId('contents-panel'));
+  const formatSelector = await screen.findByRole('combobox', {
+    name: /select format/i,
+  });
+  userEvent.click(formatSelector);
+  await screen.findByText(/Send as PDF/i);
+  // a chart has no workbook path on the backend, so the option must not be offered
+  expect(screen.queryByText(/Send as Excel/i)).not.toBeInTheDocument();
+});
+
+// --------------- dataset-less native filters (no `targets`) ------------------
+
+// A time filter's dashboard metadata has no `targets` key at all. Reading
+// `targets[0]` therefore threw "can't access property 0, targets is undefined" the
+// moment such a filter was selected - reachable only once ALERT_REPORTS_FILTER is on.
+const TIME_FILTER_WITHOUT_TARGETS = {
+  id: 'NATIVE_FILTER-time',
+  name: 'Period',
+  filterType: 'filter_time',
+  adhoc_filters: [],
+  scope: { rootPath: ['ROOT_ID'], excluded: [] },
+  tabsInScope: [],
+  type: 'NATIVE_FILTER',
+};
+
+const setupTimeFilterMocks = (withSavedFilter: boolean) => {
+  fetchMock.callHistory.clear();
+  fetchMock.removeRoute(FETCH_DASHBOARD_ENDPOINT);
+  fetchMock.removeRoute(tabsEndpoint);
+
+  fetchMock.get(
+    FETCH_DASHBOARD_ENDPOINT,
+    {
+      result: {
+        ...generateMockPayload(true),
+        extra: {
+          dashboard: {
+            anchor: '',
+            nativeFilters: withSavedFilter
+              ? [
+                  {
+                    nativeFilterId: 'NATIVE_FILTER-time',
+                    filterName: 'Period',
+                    filterType: 'filter_time',
+                    filterValues: ['2026-01-01T00:00:00 : 2026-01-02T00:00:00'],
+                  },
+                ]
+              : [],
+          },
+        },
+      },
+    },
+    { name: FETCH_DASHBOARD_ENDPOINT },
+  );
+  fetchMock.get(
+    tabsEndpoint,
+    {
+      result: {
+        all_tabs: {},
+        tab_tree: [],
+        native_filters: { all: [TIME_FILTER_WITHOUT_TARGETS] },
+      },
+    },
+    { name: tabsEndpoint },
+  );
+};
+
+test('opens a saved report whose time filter has no targets', async () => {
+  setupTimeFilterMocks(true);
+  const store = createStore({}, reducerIndex);
+
+  try {
+    render(<AlertReportModal {...generateMockedProps(true, true)} />, { store });
+    userEvent.click(screen.getByTestId('contents-panel'));
+    await screen.findByText(/test dashboard/i);
+    await waitFor(() => {
+      expect(
+        fetchMock.callHistory
+          .calls()
+          .some(c => c.url.includes('/dashboard/1/tabs')),
+      ).toBe(true);
+    });
+
+    // Reaching here at all is the assertion: addNativeFilterOptions used to read
+    // targets[0] before its time-filter guard, so this threw during the effect.
+    expect(
+      screen.getByRole('combobox', { name: /select filter/i }),
+    ).toBeInTheDocument();
+  } finally {
+    restoreAnchorMocks();
+  }
+});
+
+test('selecting a time filter with no targets does not throw', async () => {
+  setupTimeFilterMocks(false);
+  const store = createStore({}, reducerIndex);
+
+  try {
+    render(<AlertReportModal {...generateMockedProps(true, true)} />, { store });
+    userEvent.click(screen.getByTestId('contents-panel'));
+    await screen.findByText(/test dashboard/i);
+    await waitFor(() => {
+      expect(
+        fetchMock.callHistory
+          .calls()
+          .some(c => c.url.includes('/dashboard/1/tabs')),
+      ).toBe(true);
+    });
+
+    const filterSelector = screen.getByRole('combobox', {
+      name: /select filter/i,
+    });
+    await comboboxSelect(filterSelector, 'Period', () =>
+      screen.getAllByText(/Period/i)[0],
+    );
+
+    // The handler read targets[0].datasetId for every filter type, so this click was
+    // the reported crash. The modal surviving it is the regression guard.
+    expect(
+      screen.getByRole('combobox', { name: /select filter/i }),
+    ).toBeInTheDocument();
+  } finally {
+    restoreAnchorMocks();
+  }
 });

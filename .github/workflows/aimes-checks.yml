@@ -59,6 +59,12 @@ jobs:
         working-directory: superset-frontend
         run: npm ci
 
+      # src/features/alerts is deliberately absent here while present under Unit tests.
+      # P3 and P4 both edit AlertReportModal.tsx, but that file carries ~16 pre-existing
+      # upstream lint errors (derived state, effects as event handlers, a non-camelCase
+      # identifier). Linting it would fail CI on code we did not write, and "fixing" it
+      # would mean rewriting upstream logic and widening every future rebase. The tests
+      # cover our changes; revisit if upstream ever cleans the file up.
       - name: Lint
         working-directory: superset-frontend
         run: |
@@ -73,7 +79,8 @@ jobs:
           npm run test -- \
             src/explore/components/controls/DateFilterControl \
             src/filters/components/Time \
-            src/filters/components/SingleDate
+            src/filters/components/SingleDate \
+            src/features/alerts
 
   backend:
     name: Backend - unit tests
@@ -89,4 +96,9 @@ jobs:
           requirements-type: dev
 
       - name: Unit tests
-        run: pytest tests/unit_tests/reports/model_test.py
+        run: |
+          pytest \
+            tests/unit_tests/reports/model_test.py \
+            tests/unit_tests/reports/dashboard_xlsx_test.py \
+            tests/unit_tests/utils/report_query_test.py \
+            tests/unit_tests/utils/excel_tests.py

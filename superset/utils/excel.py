@@ -53,6 +53,28 @@ def df_to_excel(df: pd.DataFrame, **kwargs: Any) -> Any:
     return output.getvalue()
 
 
+def df_dict_to_excel(dfs: dict[str, pd.DataFrame], **kwargs: Any) -> Any:
+    """
+    Write several dataframes to one workbook, one sheet each.
+
+    The sibling of :func:`df_to_excel` for the multi-sheet case. Keys are used as sheet
+    names verbatim, so they must already be legal and unique - see
+    ``superset.utils.report_query.sheet_name``.
+
+    :param dfs: sheet name -> dataframe, written in iteration order
+    :return: the workbook as bytes
+    """
+    output = io.BytesIO()
+
+    # pylint: disable=abstract-class-instantiated
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        for name, df in dfs.items():
+            # make sure formulas are quoted, to prevent malicious injections
+            quote_formulas(df).to_excel(writer, sheet_name=name, **kwargs)
+
+    return output.getvalue()
+
+
 def apply_column_types(
     df: pd.DataFrame, column_types: list[GenericDataType]
 ) -> pd.DataFrame:

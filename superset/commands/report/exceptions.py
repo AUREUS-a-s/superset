@@ -87,6 +87,18 @@ class ReportScheduleRequiredTypeValidationError(ValidationError):
         super().__init__(_("Type is required"), field_name="type")
 
 
+class ReportScheduleXlsxDashboardOnlyError(ValidationError):
+    """
+    Marshmallow validation error for the Excel format on a non-dashboard report
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            _("Excel is only supported for dashboard reports"),
+            field_name="report_format",
+        )
+
+
 class ReportScheduleOnlyChartOrDashboardError(ValidationError):
     """
     Marshmallow validation error for report schedule accept exclusive chart or dashboard
@@ -196,6 +208,10 @@ class ReportScheduleCsvFailedError(CommandException):
     message = _("Report Schedule execution failed when generating a csv.")
 
 
+class ReportScheduleXlsxFailedError(CommandException):
+    message = _("Report Schedule execution failed when generating an xlsx.")
+
+
 class ReportScheduleDataFrameFailedError(CommandException):
     message = _("Report Schedule execution failed when generating a dataframe.")
 
@@ -278,6 +294,11 @@ class ReportScheduleCsvTimeout(CommandException):
 class ReportScheduleDataFrameTimeout(CommandException):
     status = 408
     message = _("A timeout occurred while generating a dataframe.")
+
+
+class ReportScheduleXlsxTimeout(CommandException):
+    status = 408
+    message = _("A timeout occurred while generating an xlsx.")
 
 
 class ReportScheduleAlertGracePeriodError(CommandException):
