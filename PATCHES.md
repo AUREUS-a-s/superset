@@ -213,7 +213,7 @@ ef2aa71bb3  feat(reports): deliver a dashboard as a multi-sheet xlsx
 1a9ee7cb14  feat(reports): let a report choose which charts go in the workbook
 b787725a80  fix(reports): reject the Excel format on anything but a dashboard report
 74e585a4ea  feat(reports): log the workbook size alongside the generation time
-<sha>       feat(reports): shape each sheet the way its chart is displayed
+8e5b464aad  feat(reports): shape each sheet the way its chart is displayed
 ```
 
 **Verification after an upgrade:**
