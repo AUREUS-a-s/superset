@@ -555,20 +555,49 @@ Only `filter_time` has been run end to end. Cover one report each for:
 
 *Pass:* the "Report info" sheet lists the filter values used, and the data reflects them.
 
+For `filter_select`, **choose two values, not one.** The backend turns the selection into
+`{"op": "IN", "val": [...]}`; a single value cannot distinguish a working `IN` from a
+coincidence, and it is the multi-value case that a hand-built spike payload never covered.
+Confirm the sheets for charts in that filter's scope contain *only* rows carrying those
+values, and that the row count dropped. The strongest form of this check is A applied to a
+select filter: compare the sheet against that chart's own CSV export with the same values
+picked in the browser.
+
 **C. Failure paths, deliberately provoked**
 
 These are the behaviours that protect a recipient from acting on wrong numbers, and each is
 unit-tested but has never been seen in a delivered workbook.
 
-- **Rejected filter:** point a filter at a column one chart's dataset does not have. *Pass:*
-  that sheet still arrives, the "Report info" sheet carries a `Warning` row naming the
-  column, and the execution log shows it. *Fail (serious):* the sheet arrives looking
-  filtered, with nothing saying it is not.
-- **Chart without `query_context`:** find or make one. *Pass:* an error sheet naming the
-  chart and telling the reader to open and re-save it; every other sheet intact.
-- **Chart outside a filter's scope:** exclude one chart from a filter. *Pass:* that sheet is
-  **unfiltered** while the others are filtered. If every sheet is filtered identically,
-  scope resolution has regressed to reading the persisted cache (§4).
+- **Rejected filter.** Cannot be provoked on a single dataset: it needs a dashboard holding
+  charts from **two different datasets**, where the filtered column exists in one and not
+  the other. Put a chart from dataset X (which has, say, `region`) and one from dataset Y
+  (which does not) on one dashboard, add a Value filter on `region` with the default
+  whole-dashboard scope, save, and run a report pinned to that filter.
+  *Pass:* chart Y's sheet still arrives, the "Report info" sheet carries a `Warning` row
+  naming the column, and the message appears in **Alerts & Reports → Execution log**. Note
+  where to look: warnings are written to the log row's `error_message` field on a row whose
+  state is **`Success`**, so it is a message on a successful run, not a failed one.
+  *Fail (serious):* the sheet arrives looking filtered with nothing saying it is not.
+- **Chart without `query_context`.** Not reachable through the UI — saving a chart in
+  Explore always writes the context. Either take one of the charts the census in G turns up
+  and put it on a test dashboard, or force it in the database, reversibly:
+
+  ```sql
+  CREATE TABLE tmp_qc_backup AS SELECT id, query_context FROM slices WHERE id = <ID>;
+  UPDATE slices SET query_context = NULL WHERE id = <ID>;
+  -- run the report --
+  UPDATE slices s SET query_context = b.query_context FROM tmp_qc_backup b WHERE s.id = b.id;
+  DROP TABLE tmp_qc_backup;
+  ```
+
+  *Pass:* an error sheet naming the chart and telling the reader to open and re-save it;
+  every other sheet intact.
+- **Chart outside a filter's scope.** Pure UI: in the filter's settings use
+  **Scoping → Apply to specific panels** and exclude one chart, then save the dashboard.
+  *Pass:* the excluded chart's sheet has the **same row count as with no filter at all**,
+  while the others are reduced. If every sheet is filtered identically, scope resolution has
+  regressed to reading the persisted cache (§4) — a correctness regression, not a cosmetic
+  one.
 
 **D. Delivery channels other than email**
 
@@ -577,8 +606,15 @@ They are four to twelve lines apiece and structurally identical to the email pat
 untested is untested — and the failure mode if a branch is wrong is a message with no file
 attached, which reads as a delivered report.
 
-*Pass:* the workbook arrives as a file on each channel in use. Channels AIMES does not use
-can be skipped, deliberately and in writing, rather than assumed.
+*Pass:* the workbook arrives as a file on each channel in use.
+
+Channels AIMES does not use may be skipped — but **record the skip as a decision**, not as a
+gap someone forgot. As of the first staging pass AIMES uses email only, so Slack and webhook
+were deliberately not exercised and their branches remain unrun. The consequence to carry
+forward: the day somebody enables Slack, the first XLSX report there is also the first
+execution of that code, and if the branch is wrong the report arrives as a message with no
+file — which reads as delivered. Whoever enables a new channel should run one XLSX report
+through it before trusting it.
 
 **E. Alerts, not just reports**
 
@@ -593,28 +629,89 @@ but nothing bounds the total.
 1. Run against the largest real dashboard available.
 2. Record wall-clock time, worker RSS, and the workbook size.
 
+**Time and size** come straight from the worker log — the generation step logs all three:
+
+```bash
+docker compose logs superset-worker | grep "Xlsx generation for dashboard"
+# → took 12.34s, 9 sheets, 284512 bytes
+```
+
+**Worker memory** needs sampling, and this is worth stating because the obvious approach does
+not work. `memory.peak` could not be reset by any of three attempts: writing to
+`/sys/fs/cgroup/memory.peak` is refused (read-only inside the container),
+`docker compose restart` does not reset it, and neither did `up -d --force-recreate`. So
+sample the current usage during the run and take the maximum:
+
+```bash
+while :; do docker exec superset_worker cat /sys/fs/cgroup/memory.current; sleep 1; done \
+  | tee /tmp/rss.txt
+# then: sort -n /tmp/rss.txt | tail -1
+```
+
+Or exploit the fact that `memory.peak` only ever rises: read it before and after. If it did
+not move, this report was not the largest thing that worker has done — a useful answer in
+itself, and cheaper than sampling.
+
 *Pass:* comfortably inside `working_timeout` with headroom. *Act on:* anything close to the
-timeout, or memory that scales with the number of charts rather than the largest one — the
-design flagged a configurable row cap per sheet as the mitigation (§7 risk 6).
+timeout, or memory that scales with the number of charts rather than with the largest single
+chart — the design flagged a configurable row cap per sheet as the mitigation (§7 risk 6).
+
+A staging environment usually holds far less data than production, so this check cannot be
+finished there. Measure it anyway: without a figure from the smaller dataset there is nothing
+to compare against when production turns out slow.
 
 **G. Census: do our charts carry `query_context`?**
 
 The one open question from the phase 1 spike. All three charts on the test dashboard had it,
 including one last saved under an earlier version, but three charts is not a sample.
 
+There is no way to do this from the UI: `query_context` is not in the chart REST API's
+`list_columns` and is not surfaced anywhere in the interface. Query the metadata database.
+
 ```sql
 SELECT (query_context IS NOT NULL AND query_context <> '') AS has_qc, count(*)
 FROM slices GROUP BY 1;
 ```
 
+If that shows a non-trivial tail, name the ones that matter — only charts on dashboards can
+appear in a report:
+
+```sql
+SELECT s.id, s.slice_name, d.dashboard_title
+FROM slices s
+JOIN dashboard_slices ds ON ds.slice_id = s.id
+JOIN dashboards d ON d.id = ds.dashboard_id
+WHERE s.query_context IS NULL OR s.query_context = ''
+ORDER BY d.dashboard_title, s.slice_name;
+```
+
 *Pass:* a negligible tail. *Act on:* a large tail means the "open and re-save the chart"
-remedy does not scale and phase 2 needs a fallback before wide use.
+remedy does not scale and phase 2 needs a fallback before wide use. Either way the query
+doubles as the source of a test subject for C.
 
 **H. Excel compatibility**
 
 Open a delivered workbook in **Excel and LibreOffice**. *Pass:* both open it without a repair
 prompt, and a cell whose value begins with `=` shows as text, not a live formula
 (`quote_formulas`).
+
+### 9.2.1 First staging pass — what came back
+
+Recorded so the next reader can tell which items are genuinely open from which were done.
+
+| Item | Result |
+|---|---|
+| A — fidelity against per-chart CSV | passed |
+| B — filter types | passed, with `filter_select` refined above after the tester asked what to look for |
+| C — provoked failure paths | not run in the first pass: the how-to above did not exist yet |
+| D — Slack / webhook | skipped by decision, AIMES uses email only |
+| E — alerts as well as reports | passed |
+| F — scale | deferred to production by decision; staging holds far less data, and the risk was judged small for this workload |
+| G — `query_context` census | not run in the first pass |
+| H — Excel and LibreOffice | not yet reported |
+
+So C, G and H are the outstanding ones, and both C and G now have concrete instructions
+above rather than a one-line description.
 
 ### 9.3 Explicitly out of scope — tell whoever tests this
 
