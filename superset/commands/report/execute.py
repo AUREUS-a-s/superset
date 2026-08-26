@@ -518,11 +518,15 @@ class BaseReportState:
         sheets = {"Report info": self._dashboard_info_frame(notes), **frames}
         xlsx = df_dict_to_excel(sheets, index=False)
 
+        # Size is logged because it is the one figure an operator cannot recover
+        # afterwards: the workbook is not stored anywhere, only mailed.
         logger.info(
-            "Xlsx generation for dashboard %s took %.2fs, %d sheets - execution_id: %s",
+            "Xlsx generation for dashboard %s took %.2fs, %d sheets, %d bytes"
+            " - execution_id: %s",
             dashboard.id,
             (datetime.utcnow() - start_time).total_seconds(),
             len(sheets),
+            len(xlsx),
             self._execution_id,
         )
         return xlsx
